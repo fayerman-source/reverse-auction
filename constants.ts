@@ -1,4 +1,4 @@
-import { Founder } from './types';
+import { AuctionConfig, Founder } from './types';
 
 type RawSetup = {
   startPrice?: number;
@@ -26,6 +26,7 @@ const DEFAULTS = {
   floorPrice: 1000,
   decrementAmount: 1000,
   dropIntervalMs: 10000,
+  participantCount: 3,
 };
 
 const COLORS = [
@@ -44,8 +45,8 @@ const n = (value: unknown, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-function sanitizeParticipants(raw: RawSetup, desiredCount: number): Founder[] {
-  const provided = Array.isArray(raw.participants) ? raw.participants : [];
+export function buildParticipants(desiredCount: number, source?: Founder[]): Founder[] {
+  const provided = Array.isArray(source) ? source : [];
 
   const normalized = provided
     .map((item, idx) => {
@@ -67,10 +68,10 @@ function sanitizeParticipants(raw: RawSetup, desiredCount: number): Founder[] {
   const result: Founder[] = [...normalized];
   while (result.length < target) {
     const i = result.length;
-    const source = seed[i % seed.length];
+    const sourceFounder = seed[i % seed.length];
     result.push({
       id: String(i + 1),
-      name: source?.name ? `${source.name}${i + 1}`.slice(0, 10) : `P${i + 1}`,
+      name: sourceFounder?.name ? `${sourceFounder.name}${i + 1}`.slice(0, 10) : `P${i + 1}`,
       color: COLORS[i % COLORS.length],
     });
   }
@@ -80,18 +81,23 @@ function sanitizeParticipants(raw: RawSetup, desiredCount: number): Founder[] {
 
 const raw: RawSetup = window.AUCTION_SETUP ?? {};
 
-export const START_PRICE = n(raw.startPrice, DEFAULTS.startPrice);
-export const MIN_PRICE = n(raw.floorPrice, DEFAULTS.floorPrice);
-export const DROP_INCREMENT = n(raw.decrementAmount, DEFAULTS.decrementAmount);
-export const DROP_INTERVAL_MS = n(raw.dropIntervalMs, DEFAULTS.dropIntervalMs);
-
 const participantCount = Math.max(
   1,
   Math.floor(
     Number.isFinite(Number(raw.participantCount))
       ? Number(raw.participantCount)
-      : (Array.isArray(raw.participants) && raw.participants.length > 0 ? raw.participants.length : FALLBACK_PARTICIPANTS.length),
+      : (Array.isArray(raw.participants) && raw.participants.length > 0
+          ? raw.participants.length
+          : DEFAULTS.participantCount),
   ),
 );
 
-export const INITIAL_FOUNDERS = sanitizeParticipants(raw, participantCount);
+export const INITIAL_CONFIG: AuctionConfig = {
+  startPrice: n(raw.startPrice, DEFAULTS.startPrice),
+  floorPrice: n(raw.floorPrice, DEFAULTS.floorPrice),
+  decrementAmount: n(raw.decrementAmount, DEFAULTS.decrementAmount),
+  dropIntervalMs: n(raw.dropIntervalMs, DEFAULTS.dropIntervalMs),
+  participantCount,
+};
+
+export const INITIAL_FOUNDERS = buildParticipants(participantCount, raw.participants);

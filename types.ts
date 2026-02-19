@@ -1,15 +1,22 @@
-
 export interface Founder {
   id: string;
   name: string;
   color: string;
 }
 
+export interface AuctionConfig {
+  startPrice: number;
+  floorPrice: number;
+  decrementAmount: number;
+  dropIntervalMs: number;
+  participantCount: number;
+}
+
 export enum AuctionStatus {
   IDLE = 'IDLE',
   RUNNING = 'RUNNING',
   PAUSED = 'PAUSED',
-  ENDED = 'ENDED'
+  ENDED = 'ENDED',
 }
 
 export interface BidLog {
@@ -24,10 +31,10 @@ export interface AuctionState {
   status: AuctionStatus;
   winner: Founder | null;
   history: BidLog[];
-  nextDropTime: number; // timestamp
+  nextDropTime: number;
 }
 
-export type SyncEvent = 
+export type SyncEvent =
   | { type: 'START'; startTime: number; startPrice: number }
   | { type: 'BID'; winnerId: string; price: number; timestamp: number }
   | { type: 'RESET' };
