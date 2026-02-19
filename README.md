@@ -1,20 +1,56 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Reverse Auction
 
-# Run and deploy your AI Studio app
+A fully client-side reverse (Dutch) auction app that is:
+- **provider-agnostic** (no Google AI Studio dependency)
+- **GitHub Pages deployable**
+- **admin-configurable** via a setup file
 
-This contains everything you need to run your app locally.
+## Admin configuration
 
-View your app in AI Studio: https://ai.studio/apps/drive/1AtWpLhlns4wYCE9TARiYxpN1Kg21DORA
+Edit `public/setup.js` to control:
+- `participantCount`
+- `startPrice`
+- `floorPrice`
+- `decrementAmount`
+- `dropIntervalMs`
+- `participants` (optional explicit list)
 
-## Run Locally
+Example:
 
-**Prerequisites:**  Node.js
+```js
+window.AUCTION_SETUP = {
+  startPrice: 20000,
+  floorPrice: 1000,
+  decrementAmount: 1000,
+  dropIntervalMs: 10000,
+  participantCount: 4,
+  participants: [
+    { id: '1', name: 'A', color: 'bg-rose-500' },
+    { id: '2', name: 'B', color: 'bg-indigo-500' },
+  ],
+};
+```
 
+If `participantCount` is greater than `participants.length`, the app auto-generates the remaining participants.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Run locally
+
+```bash
+npm install
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+npm run preview
+```
+
+## GitHub Pages deployment
+
+This repo includes a Pages workflow at `.github/workflows/deploy-pages.yml`.
+
+1. In GitHub: **Settings → Pages → Build and deployment → Source: GitHub Actions**
+2. Push to `main`
+3. Workflow builds and deploys `dist/`
