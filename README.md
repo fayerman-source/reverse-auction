@@ -34,6 +34,7 @@ Use the **Setup** button in the header to adjust:
 - decrement amount
 - drop interval
 - number of participants
+- participant initials (comma-separated)
 
 ### 2) `public/setup.js`
 Set startup defaults before the app loads:

@@ -10,6 +10,7 @@ const App: React.FC = () => {
   const [config, setConfig] = useState<AuctionConfig>(INITIAL_CONFIG);
   const [draftConfig, setDraftConfig] = useState<AuctionConfig>(INITIAL_CONFIG);
   const [founders, setFounders] = useState<Founder[]>(INITIAL_FOUNDERS);
+  const [draftInitials, setDraftInitials] = useState<string>(INITIAL_FOUNDERS.map((f) => f.name).join(', '));
   const [setupOpen, setSetupOpen] = useState(false);
 
   const [gameState, setGameState] = useState<AuctionState>({
@@ -163,7 +164,13 @@ const App: React.FC = () => {
       participantCount: Math.max(1, Math.floor(draftConfig.participantCount)),
     };
 
-    const nextFounders = buildParticipants(nextConfig.participantCount, founders);
+    const parsedNames = draftInitials
+      .split(',')
+      .map((n) => n.trim().toUpperCase())
+      .filter(Boolean)
+      .map((name, idx) => ({ id: String(idx + 1), name, color: founders[idx]?.color ?? 'bg-cyan-500' }));
+
+    const nextFounders = buildParticipants(nextConfig.participantCount, parsedNames.length > 0 ? parsedNames : founders);
 
     setConfig(nextConfig);
     setFounders(nextFounders);
@@ -190,7 +197,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
-            <button onClick={() => setSetupOpen(true)} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-amber-300 transition-colors">
+            <button onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-amber-300 transition-colors">
               Setup
             </button>
             {!isRemote ? (
@@ -236,10 +243,13 @@ const App: React.FC = () => {
               <label className="block">Participants
                 <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.participantCount} onChange={(e) => setDraftConfig({ ...draftConfig, participantCount: Number(e.target.value) })} />
               </label>
+              <label className="block">Participant Initials (comma-separated)
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" placeholder="EF, EG, AG" value={draftInitials} onChange={(e) => setDraftInitials(e.target.value)} />
+              </label>
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => { setDraftConfig(config); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
+              <button onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
               <button onClick={applySetup} className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold">Apply & Reset</button>
             </div>
           </div>
