@@ -115,6 +115,38 @@ After a successful run, the site is available at:
 
 - `https://<username>.github.io/<repo-name>/`
 
+## Roadmap (Remote Functionality Options)
+
+Contributions are welcome. If you want to improve remote multiplayer reliability, here are good paths:
+
+### Option A — Minimal investment (recommended)
+- **Firebase Realtime Database**
+- No server to operate
+- Realtime state sync + late-join recovery
+- Good for fast delivery and small/medium usage
+
+### Option B — Managed SQL + realtime
+- **Supabase (Postgres + Realtime + Auth)**
+- Slightly more setup than Firebase
+- Better long-term data model if analytics/history are needed
+
+### Option C — Pub/Sub relay only
+- **Pusher / Ably / similar**
+- Very low backend overhead
+- Needs careful client-side authority model to avoid race conditions
+
+### Option D — Custom backend (full control)
+- **Node.js + WebSockets + Postgres/Redis**
+- Highest flexibility and reliability
+- Highest implementation and maintenance cost
+
+### Common tasks for any option
+- Authoritative room state model
+- Join-time state snapshot
+- Event sequencing/idempotency
+- Participant claim/lock and basic auth
+- Optional persistent event log
+
 ## Contributing
 
 Pull requests and issues are welcome.
