@@ -2,6 +2,14 @@
 
 A configurable, real-time reverse auction web app built with React, TypeScript, and Vite.
 
+## Status
+
+✅ **Go for live usage** (latest QA pass found no launch blockers).
+
+See:
+- `SECURITY_HARDENING_AUDIT.md`
+- `LAUNCH_RUNBOOK.md`
+
 ## Overview
 
 This app runs a descending-price (Dutch) auction where participants accept the current price to win.
@@ -14,26 +22,26 @@ It supports:
 
 ## Current Remote Architecture
 
-Remote mode is now powered by **Supabase Realtime** (not ntfy relay).
+Remote mode is powered by **Supabase Realtime**.
 
-- Room state stored in `auction_rooms`
-- Optional event log in `auction_events`
-- Join-time state hydration
-- Live updates via Postgres changes subscription
+- Room metadata: `rooms`
+- Participant claims: `room_participants`
+- Room state: `auction_rooms`
+- Event log: `auction_events`
 
 ## Features
 
 - Descending-price auction flow
 - Configurable start price, floor price, decrement amount, and tick interval
-- Automatic stop when floor is reached
-- Winner capture at current price
+- Host-only remote controls (start/reset)
+- Participant claim locks (no duplicate slot claims)
+- Start gating until all required participants are claimed
+- Winner capture at click-time price
 - Auction history view
 - Sound cues (start, drop, bid, end)
-- Remote room mode (join by code)
-- Participant identity selection in remote mode
 - Setup modal for runtime reconfiguration
 - Configurable participant initials (comma-separated)
-- Custom favicon (`public/favicon.ico`)
+- In-app toasts for user-facing errors
 
 ## Configuration
 
@@ -48,19 +56,27 @@ Use the **Setup** button in the header to adjust:
 - number of participants
 - participant initials (comma-separated)
 
+Validation currently enforces:
+- floor price must be less than start price
+
 ### 2) `public/setup.js`
 Set startup defaults before the app loads:
 
 ```js
 window.AUCTION_SETUP = {
+  // Supabase public config (safe client-side)
+  supabaseUrl: 'https://<project-ref>.supabase.co',
+  supabaseAnonKey: 'sb_publishable_...',
+
   startPrice: 20000,
   floorPrice: 1000,
   decrementAmount: 1000,
   dropIntervalMs: 10000,
-  participantCount: 4,
+  participantCount: 3,
   participants: [
     { id: '1', name: 'EF', color: 'bg-rose-500' },
     { id: '2', name: 'EG', color: 'bg-indigo-500' },
+    { id: '3', name: 'AG', color: 'bg-emerald-500' },
   ],
 };
 ```
@@ -73,7 +89,7 @@ If `participantCount` is greater than `participants.length`, extra participants 
 - TypeScript
 - Vite
 - Tailwind CSS (CDN)
-- Supabase (Postgres + Realtime)
+- Supabase (Postgres + Realtime + Anonymous Auth)
 
 ## Project Structure
 
@@ -92,6 +108,9 @@ If `participantCount` is greater than `participants.length`, extra participants 
 │   ├── setup.js
 │   ├── favicon.ico
 │   └── favicon.png
+├── supabase_phase0.sql
+├── SECURITY_HARDENING_AUDIT.md
+├── LAUNCH_RUNBOOK.md
 └── .github/workflows/
     └── deploy-pages.yml
 ```
@@ -102,17 +121,16 @@ If `participantCount` is greater than `participants.length`, extra participants 
 - Node.js 18+ (Node 20 recommended)
 - npm
 
-### Environment
-Create `.env.local` (optional if already set in `public/setup.js`):
+### Optional `.env.local`
 
 ```bash
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
 
-`syncService` now supports both sources:
-1. `VITE_SUPABASE_*` build env vars
-2. `window.AUCTION_SETUP.supabaseUrl` + `window.AUCTION_SETUP.supabaseAnonKey`
+`syncService` supports both:
+1. `VITE_SUPABASE_*` env vars
+2. `window.AUCTION_SETUP.supabaseUrl` + `supabaseAnonKey`
 
 ### Run
 
@@ -130,33 +148,39 @@ npm run preview
 
 ## Database Setup (Supabase)
 
-Run `supabase_phase0.sql` in Supabase SQL Editor.
-
-This creates and hardens:
-- `rooms` (host ownership)
-- `room_participants` (participant slot claims)
-- `auction_rooms` (authoritative room state)
-- `auction_events` (event log)
-
-Then verify these tables are in the `supabase_realtime` publication.
+1. Enable **Anonymous Auth**.
+2. Run `supabase_phase0.sql` in Supabase SQL Editor.
+3. Verify tables are in publication `supabase_realtime`.
 
 ## GitHub Pages Deployment
 
-A deployment workflow is included at:
-
+Workflow:
 - `.github/workflows/deploy-pages.yml`
 
 Setup:
-1. Go to **Settings → Pages**
-2. Set **Source** to **GitHub Actions**
-3. In **Settings → Secrets and variables → Actions**, add:
+1. **Settings → Pages** → Source = GitHub Actions
+2. **Settings → Secrets and variables → Actions**
    - `VITE_SUPABASE_URL`
    - `VITE_SUPABASE_ANON_KEY`
-4. Push to `main`
+3. Push to `main`
 
-After a successful run, the site is available at:
-
+Site URL:
 - `https://<username>.github.io/<repo-name>/`
+
+## Add a Screenshot to README
+
+Recommended path:
+1. Take a clean screenshot (desktop host view during active auction).
+2. Save it as: `docs/images/app-screenshot.png`
+3. Add this section near the top of README:
+
+```md
+## Screenshot
+
+![Reverse Auction UI](docs/images/app-screenshot.png)
+```
+
+Tip: also capture one mobile screenshot and include both for discoverability.
 
 ## Legal Disclaimer
 
