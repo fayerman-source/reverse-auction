@@ -1,5 +1,7 @@
 # Reverse Auction (Dutch Auction)
 
+![Reverse Auction](docs/images/reverse-auction-hero-square.jpg)
+
 A configurable, real-time reverse auction web app built with React, TypeScript, and Vite.
 
 ## Status
@@ -166,21 +168,6 @@ Setup:
 
 Site URL:
 - `https://<username>.github.io/<repo-name>/`
-
-## Add a Screenshot to README
-
-Recommended path:
-1. Take a clean screenshot (desktop host view during active auction).
-2. Save it as: `docs/images/app-screenshot.png`
-3. Add this section near the top of README:
-
-```md
-## Screenshot
-
-![Reverse Auction UI](docs/images/app-screenshot.png)
-```
-
-Tip: also capture one mobile screenshot and include both for discoverability.
 
 ## Legal Disclaimer
 
