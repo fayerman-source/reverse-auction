@@ -106,6 +106,19 @@ class SyncService {
     if (error) throw new Error(error.message);
   }
 
+  async listClaimedParticipants(): Promise<Set<string>> {
+    if (!this.roomCode) return new Set();
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('room_participants')
+      .select('founder_id')
+      .eq('room_id', this.roomCode);
+
+    if (error || !data) return new Set();
+    return new Set(data.map((row) => String((row as { founder_id: string }).founder_id)));
+  }
+
   async claimParticipant(founderId: string): Promise<boolean> {
     if (!this.roomCode) return false;
     const supabase = getSupabase();

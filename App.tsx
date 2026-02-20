@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const [myFounderId, setMyFounderId] = useState<string | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isHost, setIsHost] = useState(false);
+  const [claimedIds, setClaimedIds] = useState<Set<string>>(new Set());
 
   const timerRef = useRef<number | null>(null);
 
@@ -169,6 +170,27 @@ const App: React.FC = () => {
     });
   };
 
+  useEffect(() => {
+    let timer: number | null = null;
+
+    const refreshClaims = async () => {
+      if (!isRemote || !isConnected) return;
+      const claimed = await syncService.listClaimedParticipants();
+      setClaimedIds(claimed);
+    };
+
+    void refreshClaims();
+    if (isRemote && isConnected) {
+      timer = window.setInterval(() => {
+        void refreshClaims();
+      }, 3000);
+    }
+
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
+  }, [isRemote, isConnected]);
+
   const applySetup = () => {
     const nextConfig: AuctionConfig = {
       startPrice: Math.max(1, Math.floor(draftConfig.startPrice)),
@@ -223,10 +245,10 @@ const App: React.FC = () => {
                 {!isConnected ? (
                   <div className="flex gap-1">
                     <input type="text" placeholder="Room" className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] w-16 md:w-24 outline-none focus:border-cyan-500" value={roomCode} onChange={(e) => setRoomCode(e.target.value)} />
-                    <button onClick={async () => { if (!roomCode) return; await syncService.joinRoom(roomCode, handleRemoteEvent); setIsConnected(true); setIsHost(syncService.isHost()); }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] font-bold">JOIN</button>
+                    <button onClick={async () => { if (!roomCode) return; await syncService.joinRoom(roomCode, handleRemoteEvent); setIsConnected(true); setIsHost(syncService.isHost()); setClaimedIds(await syncService.listClaimedParticipants()); }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] font-bold">JOIN</button>
                   </div>
                 ) : (
-                  <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setIsRemote(false); setMyFounderId(null); }} className="text-[9px] md:text-[10px] text-red-500 uppercase font-bold">Disconnect</button>
+                  <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[9px] md:text-[10px] text-red-500 uppercase font-bold">Disconnect</button>
                 )}
               </div>
             )}
@@ -275,7 +297,13 @@ const App: React.FC = () => {
           <div className="bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-2xl max-w-sm w-full text-center shadow-2xl">
             <h2 className="text-lg md:text-xl font-bold mb-1 font-display text-white">WHO ARE YOU?</h2>
             <p className="text-slate-500 text-[10px] md:text-sm mb-6 uppercase tracking-widest font-mono">Select your identity for this room</p>
-            <div className="grid grid-cols-1 gap-3">{founders.map((f) => <button key={f.id} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); } else { alert('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 hover:border-cyan-500 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')}`}>{f.name}</button>)}</div>
+            <div className="grid grid-cols-1 gap-3">{founders.map((f) => {
+              const alreadyClaimed = claimedIds.has(f.id);
+              return <button key={f.id} disabled={alreadyClaimed} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); setClaimedIds(await syncService.listClaimedParticipants()); } else { alert('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
+                <div>{f.name}</div>
+                <div className="text-[10px] mt-1 text-slate-400">{alreadyClaimed ? 'Already joined' : 'Available'}</div>
+              </button>;
+            })}</div>
           </div>
         </div>
       )}
