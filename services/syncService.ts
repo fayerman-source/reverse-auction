@@ -43,12 +43,15 @@ type RoomMeta = {
   host_user_id: string;
 };
 
+type ConnectionState = 'connected' | 'reconnecting' | 'disconnected';
+
 class SyncService {
   private roomCode: string | null = null;
   private channel: ReturnType<SupabaseClient['channel']> | null = null;
   private currentUserId: string | null = null;
   private isHostForRoom = false;
   onParticipantsChanged: ((claimed: Set<string>) => void) | null = null;
+  onConnectionStatus: ((state: ConnectionState) => void) | null = null;
 
   async initAuth() {
     if (this.currentUserId) return this.currentUserId;
@@ -254,7 +257,19 @@ class SyncService {
           this.onParticipantsChanged?.(claimed);
         },
       )
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          this.onConnectionStatus?.('connected');
+          return;
+        }
+        if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+          this.onConnectionStatus?.('reconnecting');
+          return;
+        }
+        if (status === 'CLOSED') {
+          this.onConnectionStatus?.('disconnected');
+        }
+      });
 
     return {
       participants: existing?.participants ?? null,
@@ -336,6 +351,7 @@ class SyncService {
     this.roomCode = null;
     this.isHostForRoom = false;
     this.onParticipantsChanged = null;
+    this.onConnectionStatus = null;
   }
 }
 

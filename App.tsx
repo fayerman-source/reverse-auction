@@ -8,7 +8,6 @@ import { syncService } from './services/syncService';
 
 const App: React.FC = () => {
   const [config, setConfig] = useState<AuctionConfig>(INITIAL_CONFIG);
-  const [draftConfig, setDraftConfig] = useState<AuctionConfig>(INITIAL_CONFIG);
   const [founders, setFounders] = useState<Founder[]>(INITIAL_FOUNDERS);
   const [draftInitials, setDraftInitials] = useState<string>(INITIAL_FOUNDERS.map((f) => f.name).join(', '));
   const [setupOpen, setSetupOpen] = useState(false);
@@ -29,8 +28,19 @@ const App: React.FC = () => {
   const [claimedIds, setClaimedIds] = useState<Set<string>>(new Set());
   const [showStartConsent, setShowStartConsent] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [toastTone, setToastTone] = useState<'error' | 'info'>('error');
+  const [connectionBanner, setConnectionBanner] = useState<string | null>(null);
+  const [draftNumbers, setDraftNumbers] = useState({
+    startPrice: String(INITIAL_CONFIG.startPrice),
+    floorPrice: String(INITIAL_CONFIG.floorPrice),
+    decrementAmount: String(INITIAL_CONFIG.decrementAmount),
+    dropIntervalMs: String(INITIAL_CONFIG.dropIntervalMs),
+    participantCount: String(INITIAL_CONFIG.participantCount),
+  });
 
   const timerRef = useRef<number | null>(null);
+  const prevClaimedRef = useRef<Set<string>>(new Set());
+  const connectionWasLostRef = useRef(false);
 
   const resetToIdle = () => {
     setGameState({
@@ -44,8 +54,25 @@ const App: React.FC = () => {
 
   const showError = (err: unknown) => {
     const msg = err instanceof Error ? err.message : String(err);
+    setToastTone('error');
     setToast(msg.replace(/^Error:\s*/i, ''));
     window.setTimeout(() => setToast(null), 3500);
+  };
+
+  const showInfo = (message: string, ms = 2200) => {
+    setToastTone('info');
+    setToast(message);
+    window.setTimeout(() => setToast(null), ms);
+  };
+
+  const loadDraftNumbers = (next: AuctionConfig) => {
+    setDraftNumbers({
+      startPrice: String(next.startPrice),
+      floorPrice: String(next.floorPrice),
+      decrementAmount: String(next.decrementAmount),
+      dropIntervalMs: String(next.dropIntervalMs),
+      participantCount: String(next.participantCount),
+    });
   };
 
   const handleReset = async (remoteInitiated = false) => {
@@ -64,9 +91,11 @@ const App: React.FC = () => {
     switch (event.type) {
       case 'START':
         soundService.playDrop();
+        setConnectionBanner(null);
         if (event.participants && event.participants.length > 0) {
           setFounders(buildParticipants(event.participantCount ?? event.participants.length, event.participants));
         }
+        showInfo('Auction started.');
         setGameState({
           currentPrice: event.startPrice,
           status: AuctionStatus.RUNNING,
@@ -78,6 +107,7 @@ const App: React.FC = () => {
       case 'BID': {
         const winner = founders.find((f) => f.id === event.winnerId) || null;
         soundService.playBid();
+        showInfo(`${winner?.name ?? 'Participant'} accepted at $${event.price.toLocaleString()}.`);
         setGameState((prev) => {
           const last = prev.history[prev.history.length - 1];
           const baseHistory =
@@ -147,6 +177,14 @@ const App: React.FC = () => {
 
     if (isRemote) {
       try {
+        const latestClaims = await syncService.listClaimedParticipants();
+        setClaimedIds(latestClaims);
+        if (latestClaims.size < founders.length) {
+          showError(`Waiting for participants: ${latestClaims.size}/${founders.length} joined.`);
+          return;
+        }
+
+        showInfo('Starting auction...');
         await syncService.sendEvent({
           type: 'START',
           startTime,
@@ -175,10 +213,19 @@ const App: React.FC = () => {
         showError('Only host can start the auction.');
         return;
       }
-      if (claimedIds.size < founders.length) {
-        showError(`Waiting for participants: ${claimedIds.size}/${founders.length} joined.`);
+
+      try {
+        const latestClaims = await syncService.listClaimedParticipants();
+        setClaimedIds(latestClaims);
+        if (latestClaims.size < founders.length) {
+          showError(`Waiting for participants: ${latestClaims.size}/${founders.length} joined.`);
+          return;
+        }
+      } catch (err) {
+        showError(err);
         return;
       }
+
       setShowStartConsent(true);
       return;
     }
@@ -186,8 +233,14 @@ const App: React.FC = () => {
   };
 
   const handleBid = async (founder: Founder) => {
-    if (gameState.status !== AuctionStatus.RUNNING) return;
-    if (isRemote && founder.id !== myFounderId) return;
+    if (gameState.status !== AuctionStatus.RUNNING) {
+      showError('Auction is not running yet.');
+      return;
+    }
+    if (isRemote && founder.id !== myFounderId) {
+      showError('You can only bid as your claimed participant.');
+      return;
+    }
 
     if (isRemote) {
       try {
@@ -221,11 +274,55 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    syncService.onParticipantsChanged = isRemote && isConnected ? (claimed) => setClaimedIds(claimed) : null;
+    if (!(isRemote && isConnected)) {
+      syncService.onParticipantsChanged = null;
+      syncService.onConnectionStatus = null;
+      prevClaimedRef.current = new Set();
+      connectionWasLostRef.current = false;
+      return;
+    }
+
+    syncService.onParticipantsChanged = (claimed) => {
+      const prev = prevClaimedRef.current;
+      if (prev.size > 0) {
+        claimed.forEach((id) => {
+          if (!prev.has(id)) {
+            const name = founders.find((f) => f.id === id)?.name ?? id;
+            showInfo(`${name} joined`);
+          }
+        });
+        prev.forEach((id) => {
+          if (!claimed.has(id)) {
+            const name = founders.find((f) => f.id === id)?.name ?? id;
+            showInfo(`${name} left`);
+          }
+        });
+      }
+      prevClaimedRef.current = new Set(claimed);
+      setClaimedIds(claimed);
+    };
+
+    syncService.onConnectionStatus = (state) => {
+      if (state === 'reconnecting') {
+        connectionWasLostRef.current = true;
+        setConnectionBanner('Reconnecting...');
+      } else if (state === 'connected') {
+        if (connectionWasLostRef.current) {
+          showInfo('Reconnected.');
+        }
+        connectionWasLostRef.current = false;
+        setConnectionBanner(null);
+      } else {
+        connectionWasLostRef.current = true;
+        setConnectionBanner('Connection lost.');
+      }
+    };
+
     return () => {
       syncService.onParticipantsChanged = null;
+      syncService.onConnectionStatus = null;
     };
-  }, [isRemote, isConnected]);
+  }, [isRemote, isConnected, founders]);
 
   useEffect(() => {
     if (!isRemote || !isConnected) return;
@@ -252,13 +349,27 @@ const App: React.FC = () => {
   }, [isRemote, isConnected]);
 
   const applySetup = async () => {
-    const nextConfig: AuctionConfig = {
-      startPrice: Math.max(1, Math.floor(draftConfig.startPrice)),
-      floorPrice: Math.max(1, Math.floor(draftConfig.floorPrice)),
-      decrementAmount: Math.max(1, Math.floor(draftConfig.decrementAmount)),
-      dropIntervalMs: Math.max(250, Math.floor(draftConfig.dropIntervalMs)),
-      participantCount: Math.max(1, Math.floor(draftConfig.participantCount)),
+    const parsePositiveInt = (value: string, min: number, label: string) => {
+      const parsed = Number(value.trim());
+      if (!Number.isFinite(parsed)) {
+        throw new Error(`${label} must be a valid number.`);
+      }
+      return Math.max(min, Math.floor(parsed));
     };
+
+    let nextConfig: AuctionConfig;
+    try {
+      nextConfig = {
+        startPrice: parsePositiveInt(draftNumbers.startPrice, 1, 'Start price'),
+        floorPrice: parsePositiveInt(draftNumbers.floorPrice, 1, 'Floor price'),
+        decrementAmount: parsePositiveInt(draftNumbers.decrementAmount, 1, 'Decrement amount'),
+        dropIntervalMs: parsePositiveInt(draftNumbers.dropIntervalMs, 250, 'Drop interval'),
+        participantCount: parsePositiveInt(draftNumbers.participantCount, 1, 'Participants'),
+      };
+    } catch (err) {
+      showError(err);
+      return;
+    }
 
     if (nextConfig.floorPrice >= nextConfig.startPrice) {
       showError('Floor price must be less than start price.');
@@ -317,11 +428,11 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center justify-end flex-wrap gap-1.5 md:gap-4 min-w-0">
-            <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { loadDraftNumbers(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               Setup
             </button>
             {!isRemote ? (
-              <button onClick={() => setIsRemote(true)} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors">
+              <button onClick={() => { setIsRemote(true); showInfo('Remote mode enabled. Enter or share a room code.'); }} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors">
                 Go Remote
               </button>
             ) : (
@@ -348,7 +459,9 @@ const App: React.FC = () => {
                           await syncService.publishRoomConfig(founders, founders.length);
                         }
 
-                        setClaimedIds(await syncService.listClaimedParticipants());
+                        const initialClaims = await syncService.listClaimedParticipants();
+                        prevClaimedRef.current = new Set(initialClaims);
+                        setClaimedIds(initialClaims);
                       } catch (err) {
                         showError(err);
                       }
@@ -361,8 +474,7 @@ const App: React.FC = () => {
                       onClick={async () => {
                         try {
                           await navigator.clipboard.writeText(roomCode);
-                          setToast('Room code copied.');
-                          window.setTimeout(() => setToast(null), 1800);
+                          showInfo('Room code copied.', 1800);
                         } catch {
                           showError('Could not copy room code.');
                         }
@@ -371,7 +483,7 @@ const App: React.FC = () => {
                     >
                       Copy
                     </button>
-                    <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[11px] md:text-xs text-red-500 uppercase font-bold">Disconnect</button>
+                    <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); setConnectionBanner(null); }} className="text-[11px] md:text-xs text-red-500 uppercase font-bold">Disconnect</button>
                   </div>
                 )}
               </div>
@@ -392,10 +504,21 @@ const App: React.FC = () => {
             )}
           </div>
         </div>
+        {isRemote && isConnected && gameState.status === AuctionStatus.IDLE && (
+          <div className="mt-2 px-1 md:px-4 text-[11px] md:text-xs text-slate-300">
+            <span className="font-semibold">Ready:</span> {claimedIds.size}/{requiredParticipants}
+          </div>
+        )}
       </header>
 
+      {connectionBanner && (
+        <div className="absolute top-16 md:top-20 left-1/2 -translate-x-1/2 z-[129] bg-amber-500/95 text-slate-950 text-xs md:text-sm px-3 py-1.5 rounded-lg shadow-xl border border-amber-200/40">
+          {connectionBanner}
+        </div>
+      )}
+
       {toast && (
-        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[130] bg-rose-500/95 text-white text-sm px-4 py-2 rounded-lg shadow-xl border border-rose-300/30">
+        <div className={`absolute top-4 left-1/2 -translate-x-1/2 z-[130] text-white text-sm px-4 py-2 rounded-lg shadow-xl border ${toastTone === 'error' ? 'bg-rose-500/95 border-rose-300/30' : 'bg-cyan-600/95 border-cyan-300/30'}`}>
           {toast}
         </div>
       )}
@@ -406,19 +529,19 @@ const App: React.FC = () => {
             <h2 className="text-xl font-bold mb-4">Auction Setup</h2>
             <div className="space-y-3 text-sm">
               <label className="block">Start Price
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.startPrice} onChange={(e) => setDraftConfig({ ...draftConfig, startPrice: Number(e.target.value) })} />
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.startPrice} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, startPrice: e.target.value }))} />
               </label>
               <label className="block">Floor Price
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.floorPrice} onChange={(e) => setDraftConfig({ ...draftConfig, floorPrice: Number(e.target.value) })} />
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.floorPrice} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, floorPrice: e.target.value }))} />
               </label>
               <label className="block">Decrement Amount
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.decrementAmount} onChange={(e) => setDraftConfig({ ...draftConfig, decrementAmount: Number(e.target.value) })} />
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.decrementAmount} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, decrementAmount: e.target.value }))} />
               </label>
               <label className="block">Drop Interval (ms)
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.dropIntervalMs} onChange={(e) => setDraftConfig({ ...draftConfig, dropIntervalMs: Number(e.target.value) })} />
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.dropIntervalMs} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, dropIntervalMs: e.target.value }))} />
               </label>
               <label className="block">Participants
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="number" value={draftConfig.participantCount} onChange={(e) => setDraftConfig({ ...draftConfig, participantCount: Number(e.target.value) })} />
+                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.participantCount} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, participantCount: e.target.value }))} />
               </label>
               <label className="block">Participant Initials (comma-separated)
                 <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" placeholder="EF, EG, AG" value={draftInitials} onChange={(e) => setDraftInitials(e.target.value)} />
@@ -426,7 +549,7 @@ const App: React.FC = () => {
             </div>
 
             <div className="mt-5 flex justify-end gap-2">
-              <button onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
+              <button onClick={() => { loadDraftNumbers(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
               <button onClick={() => { void applySetup(); }} className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold">Apply & Reset</button>
             </div>
           </div>
@@ -462,7 +585,7 @@ const App: React.FC = () => {
             <h2 className="text-lg md:text-xl font-bold mb-1 font-display text-white">WHO ARE YOU?</h2>
             <p className="text-slate-500 text-[10px] md:text-sm mb-4 uppercase tracking-widest font-mono">Select your identity for this room</p>
             <button
-              onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }}
+              onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); setConnectionBanner(null); }}
               className="mb-4 text-[10px] text-slate-400 hover:text-white uppercase font-bold"
             >
               ← Back
@@ -512,7 +635,7 @@ const App: React.FC = () => {
         >
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2 md:gap-4 h-full">
             {founders.map((founder) => (
-              <FounderButton key={founder.id} founder={founder} currentPrice={gameState.currentPrice} status={gameState.status} onBid={handleBid} disabled={(gameState.status !== AuctionStatus.RUNNING && gameState.winner?.id !== founder.id) || (isRemote && myFounderId !== null && founder.id !== myFounderId && gameState.winner?.id !== founder.id)} isWinner={gameState.winner?.id === founder.id} isMe={isRemote && founder.id === myFounderId} />
+              <FounderButton key={founder.id} founder={founder} currentPrice={gameState.currentPrice} status={gameState.status} onBid={handleBid} disabled={(gameState.status !== AuctionStatus.RUNNING && gameState.winner?.id !== founder.id) || (isRemote && myFounderId !== null && founder.id !== myFounderId && gameState.winner?.id !== founder.id)} isWinner={gameState.winner?.id === founder.id} isMe={isRemote && founder.id === myFounderId} isClaimed={claimedIds.has(founder.id)} />
             ))}
           </div>
         </div>

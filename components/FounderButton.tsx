@@ -10,16 +10,18 @@ interface FounderButtonProps {
   disabled: boolean;
   isWinner: boolean;
   isMe?: boolean;
+  isClaimed?: boolean;
 }
 
-export const FounderButton: React.FC<FounderButtonProps> = ({ 
-  founder, 
-  currentPrice, 
-  status, 
-  onBid, 
+export const FounderButton: React.FC<FounderButtonProps> = ({
+  founder,
+  currentPrice,
+  status,
+  onBid,
   disabled,
   isWinner,
-  isMe
+  isMe,
+  isClaimed = false,
 }) => {
   const isRunning = status === AuctionStatus.RUNNING;
   const isEnded = status === AuctionStatus.ENDED;
@@ -36,6 +38,8 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
     }
   } else if (isEnded && !isWinner) {
     buttonStyle = "bg-slate-900/50 border-slate-800 text-slate-600 opacity-40 cursor-not-allowed";
+  } else if (isClaimed) {
+    buttonStyle = "bg-slate-800/70 border-emerald-500/60 text-slate-200";
   }
 
   return (
@@ -60,6 +64,12 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
           YOU
         </div>
       )}
+
+      {!isWinner && status === AuctionStatus.IDLE && isClaimed && !isMe && (
+        <div className="absolute -top-1.5 md:-top-2.5 px-1.5 py-0.5 md:px-2 md:py-1 bg-emerald-500 text-white text-[9px] md:text-[10px] font-bold uppercase tracking-widest rounded-full shadow-lg z-10 border border-white/10">
+          READY
+        </div>
+      )}
       
       {/* Initials Circle */}
       <div className={`
@@ -72,7 +82,7 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
       </div>
       
       <div className={`font-bold display-font uppercase ${isWinner ? 'text-xs md:text-lg tracking-normal' : 'text-sm md:text-base tracking-tight'}`}>
-        {isWinner ? 'ACCEPTED' : isRunning ? (disabled ? 'WAIT' : 'ACCEPT') : 'IDLE'}
+        {isWinner ? 'ACCEPTED' : isRunning ? (disabled ? 'WAIT' : 'ACCEPT') : (isClaimed ? 'READY' : 'OPEN')}
       </div>
 
       {isRunning && !disabled && (
