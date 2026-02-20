@@ -125,6 +125,13 @@ const App: React.FC = () => {
 
   const handleStart = async () => {
     const startTime = Date.now();
+    if (isRemote && isHost) {
+      const ok = window.confirm(
+        'By starting, participants acknowledge this is a live auction workflow. Legal enforceability may require separate signed terms.',
+      );
+      if (!ok) return;
+    }
+
     if (isRemote) {
       try {
         await syncService.sendEvent({ type: 'START', startTime, startPrice: config.startPrice });

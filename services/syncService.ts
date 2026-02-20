@@ -243,11 +243,17 @@ class SyncService {
 
     await this.writeRoomState(roomId, nextState);
 
+    const legalMeta =
+      event.type === 'START' || event.type === 'BID'
+        ? { termsVersion: 'v0.1', consentAt: Date.now() }
+        : {};
+
     await supabase.from('auction_events').insert({
       room_id: roomId,
       event_type: event.type,
       payload: {
         ...event,
+        ...legalMeta,
         eventSeq: nextSeq,
         actorUserId: this.currentUserId,
       },
