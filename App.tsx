@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [isConnected, setIsConnected] = useState(false);
   const [isHost, setIsHost] = useState(false);
   const [claimedIds, setClaimedIds] = useState<Set<string>>(new Set());
+  const [showStartConsent, setShowStartConsent] = useState(false);
 
   const timerRef = useRef<number | null>(null);
 
@@ -123,14 +124,8 @@ const App: React.FC = () => {
     };
   }, [gameState.status, gameState.nextDropTime, config]);
 
-  const handleStart = async () => {
+  const executeStart = async () => {
     const startTime = Date.now();
-    if (isRemote && isHost) {
-      const ok = window.confirm(
-        'By starting, participants acknowledge this is a live auction workflow. Legal enforceability may require separate signed terms.',
-      );
-      if (!ok) return;
-    }
 
     if (isRemote) {
       try {
@@ -148,6 +143,14 @@ const App: React.FC = () => {
         nextDropTime: startTime + config.dropIntervalMs,
       }));
     }
+  };
+
+  const handleStart = async () => {
+    if (isRemote && isHost) {
+      setShowStartConsent(true);
+      return;
+    }
+    await executeStart();
   };
 
   const handleBid = async (founder: Founder) => {
@@ -294,6 +297,29 @@ const App: React.FC = () => {
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
               <button onClick={applySetup} className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold">Apply & Reset</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showStartConsent && (
+        <div className="absolute inset-0 bg-slate-950/90 z-[121] flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 w-full max-w-md">
+            <h2 className="text-lg md:text-xl font-bold mb-2">Confirm Start</h2>
+            <p className="text-slate-300 text-sm leading-relaxed">
+              By starting, participants acknowledge this is a live auction workflow. Legal enforceability may require separate signed terms.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button onClick={() => setShowStartConsent(false)} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
+              <button
+                onClick={async () => {
+                  setShowStartConsent(false);
+                  await executeStart();
+                }}
+                className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold"
+              >
+                Acknowledge & Start
+              </button>
             </div>
           </div>
         </div>
