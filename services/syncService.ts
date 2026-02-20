@@ -124,13 +124,17 @@ class SyncService {
     const supabase = getSupabase();
     const userId = await this.initAuth();
 
-    const res = await supabase.from('room_participants').insert({
-      room_id: this.roomCode,
-      founder_id: founderId,
-      user_id: userId,
-    });
-
-    if (!res.error) return true;
+    await supabase.from('room_participants').upsert(
+      {
+        room_id: this.roomCode,
+        founder_id: founderId,
+        user_id: userId,
+      },
+      {
+        onConflict: 'room_id,founder_id',
+        ignoreDuplicates: true,
+      },
+    );
 
     const existing = await supabase
       .from('room_participants')
