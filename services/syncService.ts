@@ -3,12 +3,14 @@ import { AuctionStatus, SyncEvent } from '../types';
 
 const runtimeSetup = (window as any).AUCTION_SETUP ?? {};
 
-const url =
-  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
-  (runtimeSetup.supabaseUrl as string | undefined);
-const anon =
-  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
-  (runtimeSetup.supabaseAnonKey as string | undefined);
+const envUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim();
+const envAnon = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined)?.trim();
+
+const setupUrl = (runtimeSetup.supabaseUrl as string | undefined)?.trim();
+const setupAnon = (runtimeSetup.supabaseAnonKey as string | undefined)?.trim();
+
+const url = envUrl || setupUrl;
+const anon = envAnon || setupAnon;
 
 let supabaseClient: SupabaseClient | null = null;
 
