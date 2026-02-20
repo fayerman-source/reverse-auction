@@ -305,7 +305,10 @@ const App: React.FC = () => {
   return (
     <div className="h-[100svh] md:h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden select-none">
       <header className="flex-none p-3 md:p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md z-50">
-        <div className="w-full flex justify-between items-center px-1 md:px-4">
+        <div
+          className="w-full flex justify-between items-center px-1 md:px-4 gap-2"
+          style={{ paddingRight: 'max(0.25rem, env(safe-area-inset-right))' }}
+        >
           <div className="flex items-center gap-2 md:gap-3">
             <div className={`w-2 h-2 md:w-3 md:h-3 rounded-full ${isConnected ? 'bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)]' : 'bg-cyan-500'} animate-pulse-fast`} />
             <h1 className="text-xs md:text-xl font-bold tracking-tight text-white uppercase">
@@ -313,7 +316,7 @@ const App: React.FC = () => {
             </h1>
           </div>
 
-          <div className="flex items-center gap-2 md:gap-4">
+          <div className="flex items-center justify-end flex-wrap gap-1.5 md:gap-4 min-w-0">
             <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               Setup
             </button>
