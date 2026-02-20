@@ -1,62 +1,227 @@
+import { createClient } from '@supabase/supabase-js';
+import { AuctionStatus, SyncEvent } from '../types';
 
-import { SyncEvent } from '../types';
+const url = import.meta.env.VITE_SUPABASE_URL as string;
+const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
+const supabase = createClient(url, anon);
+
+type RoomState = {
+  roomId: string;
+  lastEvent?: SyncEvent;
+  updatedAt: number;
+  eventSeq: number;
+  status: AuctionStatus;
+};
+
+type RoomMeta = {
+  room_id: string;
+  host_user_id: string;
+};
 
 class SyncService {
-  private eventSource: EventSource | null = null;
   private roomCode: string | null = null;
+  private channel: ReturnType<typeof supabase.channel> | null = null;
+  private currentUserId: string | null = null;
+  private isHostForRoom = false;
+
+  async initAuth() {
+    if (this.currentUserId) return this.currentUserId;
+
+    const existing = await supabase.auth.getUser();
+    if (existing.data.user?.id) {
+      this.currentUserId = existing.data.user.id;
+      return this.currentUserId;
+    }
+
+    const { data, error } = await supabase.auth.signInAnonymously();
+    if (error || !data.user?.id) {
+      throw new Error(`auth failed: ${error?.message ?? 'unknown'}`);
+    }
+    this.currentUserId = data.user.id;
+    return this.currentUserId;
+  }
+
+  isHost() {
+    return this.isHostForRoom;
+  }
+
+  private async getOrCreateRoomMeta(roomId: string): Promise<RoomMeta> {
+    const userId = await this.initAuth();
+
+    const existing = await supabase.from('rooms').select('room_id,host_user_id').eq('room_id', roomId).maybeSingle();
+    if (existing.data) {
+      this.isHostForRoom = existing.data.host_user_id === userId;
+      return existing.data as RoomMeta;
+    }
+
+    const created = await supabase
+      .from('rooms')
+      .insert({ room_id: roomId, host_user_id: userId })
+      .select('room_id,host_user_id')
+      .single();
+
+    if (created.error || !created.data) {
+      // Race-safe fallback if another user created first.
+      const fallback = await supabase.from('rooms').select('room_id,host_user_id').eq('room_id', roomId).single();
+      if (fallback.error || !fallback.data) {
+        throw new Error(`room init failed: ${created.error?.message ?? fallback.error?.message ?? 'unknown'}`);
+      }
+      this.isHostForRoom = fallback.data.host_user_id === userId;
+      return fallback.data as RoomMeta;
+    }
+
+    this.isHostForRoom = created.data.host_user_id === userId;
+    return created.data as RoomMeta;
+  }
+
+  private async readRoomState(roomId: string): Promise<RoomState | null> {
+    const { data, error } = await supabase.from('auction_rooms').select('state').eq('room_id', roomId).maybeSingle();
+    if (error || !data?.state) return null;
+    return data.state as RoomState;
+  }
+
+  private async writeRoomState(roomId: string, nextState: RoomState) {
+    const { error } = await supabase.from('auction_rooms').upsert({ room_id: roomId, state: nextState }, { onConflict: 'room_id' });
+    if (error) throw new Error(error.message);
+  }
+
+  async claimParticipant(founderId: string): Promise<boolean> {
+    if (!this.roomCode) return false;
+    const userId = await this.initAuth();
+
+    const res = await supabase.from('room_participants').insert({
+      room_id: this.roomCode,
+      founder_id: founderId,
+      user_id: userId,
+    });
+
+    if (!res.error) return true;
+
+    const existing = await supabase
+      .from('room_participants')
+      .select('user_id')
+      .eq('room_id', this.roomCode)
+      .eq('founder_id', founderId)
+      .maybeSingle();
+
+    return existing.data?.user_id === userId;
+  }
+
+  private async canBid(founderId: string): Promise<boolean> {
+    if (!this.roomCode) return false;
+    const userId = await this.initAuth();
+    const q = await supabase
+      .from('room_participants')
+      .select('user_id')
+      .eq('room_id', this.roomCode)
+      .eq('founder_id', founderId)
+      .maybeSingle();
+
+    return q.data?.user_id === userId;
+  }
 
   async joinRoom(code: string, onEvent: (event: SyncEvent) => void) {
     this.leaveRoom();
-    const cleanCode = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!cleanCode) return;
-    this.roomCode = cleanCode;
 
-    // Use ntfy.sh SSE stream. Note: EventSource automatically handles reconnection.
-    this.eventSource = new EventSource(`https://ntfy.sh/auction-room-${this.roomCode}/sse`);
-    
-    this.eventSource.onmessage = (e) => {
-      try {
-        const data = JSON.parse(e.data);
-        // ntfy.sh wraps the broadcasted payload in the 'message' field
-        if (data.message) {
-          const event: SyncEvent = JSON.parse(data.message);
-          onEvent(event);
-        }
-      } catch (err) {
-        // Silently skip heartbeat or malformed messages
-      }
-    };
+    const roomId = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!roomId) return;
+    this.roomCode = roomId;
 
-    this.eventSource.onerror = (e) => {
-      // EventSource naturally reconnects. We log as debug to avoid cluttering the console with "errors".
-      console.debug("Sync connection refreshed or temporarily lost. Reconnecting automatically...");
-    };
+    await this.getOrCreateRoomMeta(roomId);
+
+    const existing = await this.readRoomState(roomId);
+    if (existing?.lastEvent) {
+      onEvent(existing.lastEvent);
+    }
+
+    this.channel = supabase
+      .channel(`room:${roomId}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'auction_rooms',
+          filter: `room_id=eq.${roomId}`,
+        },
+        (payload) => {
+          const row = payload.new as { state?: RoomState };
+          const ev = row?.state?.lastEvent;
+          if (ev) onEvent(ev);
+        },
+      )
+      .subscribe();
+  }
+
+  private deriveNextStatus(current: AuctionStatus, event: SyncEvent): AuctionStatus {
+    if (event.type === 'START') return AuctionStatus.RUNNING;
+    if (event.type === 'BID') return AuctionStatus.ENDED;
+    if (event.type === 'RESET') return AuctionStatus.IDLE;
+    return current;
   }
 
   async sendEvent(event: SyncEvent) {
     if (!this.roomCode) return;
 
-    try {
-      // Broadcast to ntfy.sh topic
-      await fetch(`https://ntfy.sh/auction-room-${this.roomCode}`, {
-        method: 'POST',
-        body: JSON.stringify(event),
-        headers: {
-          'Title': 'Auction Event',
-          'Tags': 'money_with_wings'
-        }
-      });
-    } catch (err) {
-      console.error("Failed to broadcast event:", err);
+    const roomId = this.roomCode;
+    await this.getOrCreateRoomMeta(roomId);
+
+    const current =
+      (await this.readRoomState(roomId)) ??
+      ({ roomId, updatedAt: Date.now(), eventSeq: 0, status: AuctionStatus.IDLE } as RoomState);
+
+    // Host-only controls
+    if ((event.type === 'START' || event.type === 'RESET') && !this.isHostForRoom) {
+      throw new Error('Only host can start/reset.');
     }
+
+    // Prevent implicit restart after ended unless explicit RESET first.
+    if (event.type === 'START' && current.status === AuctionStatus.ENDED) {
+      throw new Error('Auction is ended. Host must reset before starting again.');
+    }
+
+    // Bid ownership checks
+    if (event.type === 'BID') {
+      const ok = await this.canBid(event.winnerId);
+      if (!ok) {
+        throw new Error('Bid denied: participant slot is not claimed by this user.');
+      }
+      if (current.status !== AuctionStatus.RUNNING) {
+        throw new Error('Bid denied: auction is not running.');
+      }
+    }
+
+    const nextSeq = (current.eventSeq ?? 0) + 1;
+    const nextStatus = this.deriveNextStatus(current.status, event);
+
+    const nextState: RoomState = {
+      roomId,
+      lastEvent: event,
+      updatedAt: Date.now(),
+      eventSeq: nextSeq,
+      status: nextStatus,
+    };
+
+    await this.writeRoomState(roomId, nextState);
+
+    await supabase.from('auction_events').insert({
+      room_id: roomId,
+      event_type: event.type,
+      payload: {
+        ...event,
+        eventSeq: nextSeq,
+        actorUserId: this.currentUserId,
+      },
+    });
   }
 
   leaveRoom() {
-    if (this.eventSource) {
-      this.eventSource.close();
-      this.eventSource = null;
+    if (this.channel) {
+      void supabase.removeChannel(this.channel);
+      this.channel = null;
     }
     this.roomCode = null;
+    this.isHostForRoom = false;
   }
 }
 

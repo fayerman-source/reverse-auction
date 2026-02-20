@@ -126,11 +126,15 @@ npm run preview
 
 ## Database Setup (Supabase)
 
-Create tables and policies in Supabase SQL editor:
-- `auction_rooms`
-- `auction_events`
+Run `supabase_phase0.sql` in Supabase SQL Editor.
 
-Enable both tables in the `supabase_realtime` publication.
+This creates and hardens:
+- `rooms` (host ownership)
+- `room_participants` (participant slot claims)
+- `auction_rooms` (authoritative room state)
+- `auction_events` (event log)
+
+Then verify these tables are in the `supabase_realtime` publication.
 
 ## GitHub Pages Deployment
 
