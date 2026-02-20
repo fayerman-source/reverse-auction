@@ -226,6 +226,11 @@ const App: React.FC = () => {
       participantCount: Math.max(1, Math.floor(draftConfig.participantCount)),
     };
 
+    if (nextConfig.floorPrice >= nextConfig.startPrice) {
+      showError('Floor price must be less than start price.');
+      return;
+    }
+
     const parsedNames = draftInitials
       .split(',')
       .map((n) => n.trim().toUpperCase())
@@ -266,7 +271,7 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
-            <button disabled={isRemote && !isHost} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               Setup
             </button>
             {!isRemote ? (
@@ -278,10 +283,27 @@ const App: React.FC = () => {
                 {!isConnected ? (
                   <div className="flex gap-1">
                     <input type="text" placeholder="Room" className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] w-16 md:w-24 outline-none focus:border-cyan-500" value={roomCode} onChange={(e) => setRoomCode(e.target.value)} />
-                    <button onClick={async () => { if (!roomCode) return; await syncService.joinRoom(roomCode, handleRemoteEvent); setIsConnected(true); setIsHost(syncService.isHost()); setClaimedIds(await syncService.listClaimedParticipants()); }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] font-bold">JOIN</button>
+                    <button onClick={async () => { if (!roomCode.trim()) { showError('Please enter a room code.'); return; } await syncService.joinRoom(roomCode, handleRemoteEvent); setIsConnected(true); setIsHost(syncService.isHost()); setClaimedIds(await syncService.listClaimedParticipants()); }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] font-bold">JOIN</button>
                   </div>
                 ) : (
-                  <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[9px] md:text-[10px] text-red-500 uppercase font-bold">Disconnect</button>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[9px] md:text-[10px] text-cyan-300 font-mono uppercase">Room: {roomCode}</span>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await navigator.clipboard.writeText(roomCode);
+                          setToast('Room code copied.');
+                          window.setTimeout(() => setToast(null), 1800);
+                        } catch {
+                          showError('Could not copy room code.');
+                        }
+                      }}
+                      className="text-[9px] md:text-[10px] text-cyan-400 uppercase font-bold"
+                    >
+                      Copy
+                    </button>
+                    <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[9px] md:text-[10px] text-red-500 uppercase font-bold">Disconnect</button>
+                  </div>
                 )}
               </div>
             )}
@@ -369,7 +391,13 @@ const App: React.FC = () => {
         <div className="absolute inset-0 bg-slate-950/95 z-[100] flex items-center justify-center backdrop-blur-md p-4 animate-in fade-in duration-300">
           <div className="bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-2xl max-w-sm w-full text-center shadow-2xl">
             <h2 className="text-lg md:text-xl font-bold mb-1 font-display text-white">WHO ARE YOU?</h2>
-            <p className="text-slate-500 text-[10px] md:text-sm mb-6 uppercase tracking-widest font-mono">Select your identity for this room</p>
+            <p className="text-slate-500 text-[10px] md:text-sm mb-4 uppercase tracking-widest font-mono">Select your identity for this room</p>
+            <button
+              onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }}
+              className="mb-4 text-[10px] text-slate-400 hover:text-white uppercase font-bold"
+            >
+              ← Back
+            </button>
             <div className="grid grid-cols-1 gap-3">{founders.map((f) => {
               const alreadyClaimed = claimedIds.has(f.id);
               return <button key={f.id} disabled={alreadyClaimed} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); setClaimedIds(await syncService.listClaimedParticipants()); } else { showError('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
