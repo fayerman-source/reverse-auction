@@ -8,9 +8,18 @@ This app runs a descending-price (Dutch) auction where participants accept the c
 
 It supports:
 - local single-screen usage
-- shared room mode for remote participants
+- remote shared rooms across locations
 - runtime configuration from the UI
-- startup defaults via a setup file
+- startup defaults via `public/setup.js`
+
+## Current Remote Architecture
+
+Remote mode is now powered by **Supabase Realtime** (not ntfy relay).
+
+- Room state stored in `auction_rooms`
+- Optional event log in `auction_events`
+- Join-time state hydration
+- Live updates via Postgres changes subscription
 
 ## Features
 
@@ -22,6 +31,9 @@ It supports:
 - Sound cues (start, drop, bid, end)
 - Remote room mode (join by code)
 - Participant identity selection in remote mode
+- Setup modal for runtime reconfiguration
+- Configurable participant initials (comma-separated)
+- Custom favicon (`public/favicon.ico`)
 
 ## Configuration
 
@@ -61,6 +73,7 @@ If `participantCount` is greater than `participants.length`, extra participants 
 - TypeScript
 - Vite
 - Tailwind CSS (CDN)
+- Supabase (Postgres + Realtime)
 
 ## Project Structure
 
@@ -76,7 +89,9 @@ If `participantCount` is greater than `participants.length`, extra participants 
 │   ├── soundService.ts
 │   └── syncService.ts
 ├── public/
-│   └── setup.js
+│   ├── setup.js
+│   ├── favicon.ico
+│   └── favicon.png
 └── .github/workflows/
     └── deploy-pages.yml
 ```
@@ -86,6 +101,14 @@ If `participantCount` is greater than `participants.length`, extra participants 
 ### Prerequisites
 - Node.js 18+ (Node 20 recommended)
 - npm
+
+### Environment
+Create `.env.local`:
+
+```bash
+VITE_SUPABASE_URL=...
+VITE_SUPABASE_ANON_KEY=...
+```
 
 ### Run
 
@@ -100,6 +123,14 @@ npm run dev
 npm run build
 npm run preview
 ```
+
+## Database Setup (Supabase)
+
+Create tables and policies in Supabase SQL editor:
+- `auction_rooms`
+- `auction_events`
+
+Enable both tables in the `supabase_realtime` publication.
 
 ## GitHub Pages Deployment
 
@@ -116,37 +147,11 @@ After a successful run, the site is available at:
 
 - `https://<username>.github.io/<repo-name>/`
 
-## Roadmap (Remote Functionality Options)
+## Legal Disclaimer
 
-Contributions are welcome. If you want to improve remote multiplayer reliability, here are good paths:
-
-### Option A — Minimal investment (recommended)
-- **Firebase Realtime Database**
-- No server to operate
-- Realtime state sync + late-join recovery
-- Good for fast delivery and small/medium usage
-
-### Option B — Managed SQL + realtime
-- **Supabase (Postgres + Realtime + Auth)**
-- Slightly more setup than Firebase
-- Better long-term data model if analytics/history are needed
-
-### Option C — Pub/Sub relay only
-- **Pusher / Ably / similar**
-- Very low backend overhead
-- Needs careful client-side authority model to avoid race conditions
-
-### Option D — Custom backend (full control)
-- **Node.js + WebSockets + Postgres/Redis**
-- Highest flexibility and reliability
-- Highest implementation and maintenance cost
-
-### Common tasks for any option
-- Authoritative room state model
-- Join-time state snapshot
-- Event sequencing/idempotency
-- Participant claim/lock and basic auth
-- Optional persistent event log
+This project and its documentation are for technical and informational purposes only and do **not** constitute legal advice.
+Legal enforceability and compliance obligations vary by jurisdiction and use case.
+Consult qualified legal counsel before relying on this software for legally binding transactions.
 
 ## Contributing
 
