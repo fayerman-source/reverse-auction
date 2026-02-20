@@ -34,7 +34,9 @@ export interface AuctionState {
   nextDropTime: number;
 }
 
+export type SyncParticipant = { id: string; name: string; color: string };
+
 export type SyncEvent =
-  | { type: 'START'; startTime: number; startPrice: number }
+  | { type: 'START'; startTime: number; startPrice: number; participantCount?: number; participants?: SyncParticipant[] }
   | { type: 'BID'; winnerId: string; price: number; timestamp: number }
   | { type: 'RESET' };

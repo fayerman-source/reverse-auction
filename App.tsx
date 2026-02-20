@@ -64,6 +64,9 @@ const App: React.FC = () => {
     switch (event.type) {
       case 'START':
         soundService.playDrop();
+        if (event.participants && event.participants.length > 0) {
+          setFounders(buildParticipants(event.participantCount ?? event.participants.length, event.participants));
+        }
         setGameState({
           currentPrice: event.startPrice,
           status: AuctionStatus.RUNNING,
@@ -144,7 +147,13 @@ const App: React.FC = () => {
 
     if (isRemote) {
       try {
-        await syncService.sendEvent({ type: 'START', startTime, startPrice: config.startPrice });
+        await syncService.sendEvent({
+          type: 'START',
+          startTime,
+          startPrice: config.startPrice,
+          participantCount: founders.length,
+          participants: founders.map((f) => ({ id: f.id, name: f.name, color: f.color })),
+        });
       } catch (err) {
         showError(err);
       }
@@ -212,27 +221,13 @@ const App: React.FC = () => {
   };
 
   useEffect(() => {
-    let timer: number | null = null;
-
-    const refreshClaims = async () => {
-      if (!isRemote || !isConnected) return;
-      const claimed = await syncService.listClaimedParticipants();
-      setClaimedIds(claimed);
-    };
-
-    void refreshClaims();
-    if (isRemote && isConnected) {
-      timer = window.setInterval(() => {
-        void refreshClaims();
-      }, 3000);
-    }
-
+    syncService.onParticipantsChanged = isRemote && isConnected ? (claimed) => setClaimedIds(claimed) : null;
     return () => {
-      if (timer) window.clearInterval(timer);
+      syncService.onParticipantsChanged = null;
     };
   }, [isRemote, isConnected]);
 
-  const applySetup = () => {
+  const applySetup = async () => {
     const nextConfig: AuctionConfig = {
       startPrice: Math.max(1, Math.floor(draftConfig.startPrice)),
       floorPrice: Math.max(1, Math.floor(draftConfig.floorPrice)),
@@ -264,6 +259,15 @@ const App: React.FC = () => {
       history: [],
       nextDropTime: 0,
     });
+
+    if (isRemote && isConnected && isHost) {
+      try {
+        await syncService.publishRoomConfig(nextFounders, nextFounders.length);
+      } catch (err) {
+        showError(err);
+      }
+    }
+
     setSetupOpen(false);
   };
 
@@ -286,23 +290,46 @@ const App: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2 md:gap-4">
-            <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+            <button disabled={(isRemote && isConnected) || gameState.status === AuctionStatus.RUNNING || (isRemote && !isHost)} onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(true); }} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-amber-300 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
               Setup
             </button>
             {!isRemote ? (
-              <button onClick={() => setIsRemote(true)} className="text-[9px] md:text-[10px] uppercase font-bold text-slate-500 hover:text-cyan-400 transition-colors">
+              <button onClick={() => setIsRemote(true)} className="text-[11px] md:text-xs uppercase font-bold text-slate-400 hover:text-cyan-400 transition-colors">
                 Go Remote
               </button>
             ) : (
               <div className="flex items-center gap-2">
                 {!isConnected ? (
                   <div className="flex gap-1">
-                    <input type="text" placeholder="Room" className="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-[10px] w-16 md:w-24 outline-none focus:border-cyan-500" value={roomCode} onChange={(e) => setRoomCode(e.target.value)} />
-                    <button onClick={async () => { if (!roomCode.trim()) { showError('Please enter a room code.'); return; } await syncService.joinRoom(roomCode, handleRemoteEvent); setIsConnected(true); setIsHost(syncService.isHost()); setClaimedIds(await syncService.listClaimedParticipants()); }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] font-bold">JOIN</button>
+                    <input type="text" placeholder="Room code" className="bg-slate-800 border border-slate-700 rounded px-2 py-1.5 text-xs w-28 md:w-32 outline-none focus:border-cyan-500" value={roomCode} onChange={(e) => setRoomCode(e.target.value)} />
+                    <button onClick={async () => {
+                      if (!roomCode.trim()) {
+                        showError('Please enter a room code.');
+                        return;
+                      }
+                      try {
+                        const roomInfo = await syncService.joinRoom(roomCode, handleRemoteEvent);
+                        const amHost = syncService.isHost();
+                        setIsConnected(true);
+                        setIsHost(amHost);
+
+                        if (!amHost && roomInfo.participants && roomInfo.participants.length > 0) {
+                          setFounders(buildParticipants(roomInfo.participantCount ?? roomInfo.participants.length, roomInfo.participants));
+                        }
+
+                        if (amHost) {
+                          await syncService.publishRoomConfig(founders, founders.length);
+                        }
+
+                        setClaimedIds(await syncService.listClaimedParticipants());
+                      } catch (err) {
+                        showError(err);
+                      }
+                    }} className="bg-cyan-600 px-2 py-1 rounded text-[10px] md:text-xs font-bold">JOIN</button>
                   </div>
                 ) : (
                   <div className="flex items-center gap-2">
-                    <span className="text-[9px] md:text-[10px] text-cyan-300 font-mono uppercase">Room: {roomCode}</span>
+                    <span className="text-[11px] md:text-xs text-cyan-300 font-mono uppercase">Room: {roomCode}</span>
                     <button
                       onClick={async () => {
                         try {
@@ -313,11 +340,11 @@ const App: React.FC = () => {
                           showError('Could not copy room code.');
                         }
                       }}
-                      className="text-[9px] md:text-[10px] text-cyan-400 uppercase font-bold"
+                      className="text-[11px] md:text-xs text-cyan-400 uppercase font-bold"
                     >
                       Copy
                     </button>
-                    <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[9px] md:text-[10px] text-red-500 uppercase font-bold">Disconnect</button>
+                    <button onClick={() => { syncService.leaveRoom(); setIsConnected(false); setIsHost(false); setClaimedIds(new Set()); setIsRemote(false); setMyFounderId(null); }} className="text-[11px] md:text-xs text-red-500 uppercase font-bold">Disconnect</button>
                   </div>
                 )}
               </div>
@@ -373,7 +400,7 @@ const App: React.FC = () => {
 
             <div className="mt-5 flex justify-end gap-2">
               <button onClick={() => { setDraftConfig(config); setDraftInitials(founders.map((f) => f.name).join(', ')); setSetupOpen(false); }} className="px-3 py-2 rounded border border-slate-700">Cancel</button>
-              <button onClick={applySetup} className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold">Apply & Reset</button>
+              <button onClick={() => { void applySetup(); }} className="px-3 py-2 rounded bg-cyan-500 text-slate-900 font-bold">Apply & Reset</button>
             </div>
           </div>
         </div>
@@ -415,7 +442,19 @@ const App: React.FC = () => {
             </button>
             <div className="grid grid-cols-1 gap-3">{founders.map((f) => {
               const alreadyClaimed = claimedIds.has(f.id);
-              return <button key={f.id} disabled={alreadyClaimed} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); setClaimedIds(await syncService.listClaimedParticipants()); } else { showError('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
+              return <button key={f.id} disabled={alreadyClaimed} onClick={async () => {
+                try {
+                  const ok = await syncService.claimParticipant(f.id);
+                  if (ok) {
+                    setMyFounderId(f.id);
+                    setClaimedIds(await syncService.listClaimedParticipants());
+                  } else {
+                    showError('This participant is already claimed. Choose another.');
+                  }
+                } catch (err) {
+                  showError(err);
+                }
+              }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
                 <div>{f.name}</div>
                 <div className="text-[10px] mt-1 text-slate-400">{alreadyClaimed ? 'Already joined' : 'Available'}</div>
               </button>;
@@ -427,9 +466,9 @@ const App: React.FC = () => {
       <main className="flex-1 flex flex-col md:flex-row overflow-hidden">
         <div className="flex-1 flex flex-col p-3 md:p-6 relative min-w-0">
           <div className="flex-none mb-2 border-b border-slate-800 pb-2">
-            <h3 className="text-[8px] md:text-xs font-bold text-slate-600 uppercase tracking-widest mb-1 md:mb-3">History</h3>
+            <h3 className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-3">History</h3>
             <div className="flex gap-1.5 md:gap-2 overflow-x-auto pb-1 mask-linear scrollbar-hide">
-              {gameState.history.slice().reverse().map((log, idx) => <div key={idx} className="flex-shrink-0 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-[9px] md:text-[10px] font-mono whitespace-nowrap"><span className={log.event === 'WIN' ? 'text-green-400' : 'text-slate-400'}>${log.price.toLocaleString()}</span><span className="mx-1 opacity-20">|</span><span className="opacity-70">{log.event === 'WIN' ? log.details : log.event}</span></div>)}
+              {gameState.history.slice().reverse().map((log, idx) => <div key={idx} className="flex-shrink-0 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-xs md:text-sm font-mono whitespace-nowrap"><span className={log.event === 'WIN' ? 'text-green-400' : 'text-slate-300'}>${log.price.toLocaleString()}</span><span className="mx-1 opacity-20">|</span><span className="opacity-75">{log.event === 'WIN' ? log.details : log.event}</span></div>)}
             </div>
           </div>
 

@@ -51,13 +51,13 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
       </div>
 
       <div className="relative z-10 text-center">
-        <h2 className="text-slate-400 text-[11px] md:text-sm uppercase tracking-[0.16em] mb-1 md:mb-2 font-semibold">Current Price</h2>
-        <div className="text-5xl sm:text-7xl md:text-9xl font-bold text-white tracking-tighter tabular-nums display-font leading-none">
+        <h2 className="text-slate-300 text-xs md:text-sm uppercase tracking-[0.16em] mb-1 md:mb-2 font-semibold">Current Price</h2>
+        <div className="text-6xl sm:text-7xl md:text-9xl font-bold text-white tracking-tighter tabular-nums display-font leading-none">
           ${price.toLocaleString()}
         </div>
       </div>
 
-      <div className="w-32 md:w-64 h-1 md:h-2 bg-slate-800 rounded-full mt-3 md:mt-8 overflow-hidden relative">
+      <div className="w-full max-w-sm md:w-64 h-3 md:h-2 bg-slate-800 rounded-full mt-4 md:mt-8 overflow-hidden relative">
         <div
           className={`h-full absolute top-0 left-0 transition-all duration-75 ease-linear ${
             progress < 30 ? 'bg-red-500' : 'bg-cyan-500'
@@ -67,7 +67,7 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
       </div>
 
       {status === AuctionStatus.RUNNING && (
-        <p className="mt-2 text-[11px] md:text-xs text-slate-400 font-mono animate-pulse">
+        <p className="mt-2 text-xs md:text-sm text-slate-300 font-mono animate-pulse">
           {Math.max(1, Math.ceil((progress / 100) * (dropIntervalMs / 1000)))}s
         </p>
       )}

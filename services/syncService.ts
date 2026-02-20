@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { AuctionStatus, SyncEvent } from '../types';
+import { AuctionStatus, Founder, SyncEvent, SyncParticipant } from '../types';
 
 const runtimeSetup = (window as any).AUCTION_SETUP ?? {};
 
@@ -29,6 +29,13 @@ type RoomState = {
   updatedAt: number;
   eventSeq: number;
   status: AuctionStatus;
+  participants?: SyncParticipant[];
+  participantCount?: number;
+};
+
+type JoinRoomResult = {
+  participants: SyncParticipant[] | null;
+  participantCount: number | null;
 };
 
 type RoomMeta = {
@@ -41,6 +48,7 @@ class SyncService {
   private channel: ReturnType<SupabaseClient['channel']> | null = null;
   private currentUserId: string | null = null;
   private isHostForRoom = false;
+  onParticipantsChanged: ((claimed: Set<string>) => void) | null = null;
 
   async initAuth() {
     if (this.currentUserId) return this.currentUserId;
@@ -106,6 +114,41 @@ class SyncService {
     if (error) throw new Error(error.message);
   }
 
+  private async getRoomParticipants(roomId: string): Promise<SyncParticipant[]> {
+    const state = await this.readRoomState(roomId);
+    if (!state?.participants || state.participants.length === 0) return [];
+    return state.participants
+      .map((p, idx) => ({
+        id: String(p?.id ?? idx + 1),
+        name: String(p?.name ?? `P${idx + 1}`).slice(0, 10).toUpperCase(),
+        color: String(p?.color ?? 'bg-cyan-500'),
+      }))
+      .filter((p) => Boolean(p.id) && Boolean(p.name));
+  }
+
+  async publishRoomConfig(participants: Founder[], count: number) {
+    if (!this.roomCode) return;
+    const current =
+      (await this.readRoomState(this.roomCode)) ??
+      ({ roomId: this.roomCode, updatedAt: Date.now(), eventSeq: 0, status: AuctionStatus.IDLE } as RoomState);
+
+    const normalized = participants.slice(0, Math.max(1, Math.floor(count))).map((p, idx) => ({
+      id: String(p.id ?? idx + 1),
+      name: String(p.name ?? `P${idx + 1}`).slice(0, 10).toUpperCase(),
+      color: String(p.color ?? 'bg-cyan-500'),
+    }));
+
+    const nextState: RoomState = {
+      ...current,
+      roomId: this.roomCode,
+      updatedAt: Date.now(),
+      participants: normalized,
+      participantCount: Math.max(1, Math.floor(count)),
+    };
+
+    await this.writeRoomState(this.roomCode, nextState);
+  }
+
   async listClaimedParticipants(): Promise<Set<string>> {
     if (!this.roomCode) return new Set();
     const supabase = getSupabase();
@@ -123,6 +166,11 @@ class SyncService {
     if (!this.roomCode) return false;
     const supabase = getSupabase();
     const userId = await this.initAuth();
+
+    const configured = await this.getRoomParticipants(this.roomCode);
+    if (configured.length > 0 && !configured.some((p) => p.id === founderId)) {
+      throw new Error('Invalid participant slot for this room.');
+    }
 
     await supabase.from('room_participants').upsert(
       {
@@ -160,12 +208,14 @@ class SyncService {
     return q.data?.user_id === userId;
   }
 
-  async joinRoom(code: string, onEvent: (event: SyncEvent) => void) {
+  async joinRoom(code: string, onEvent: (event: SyncEvent) => void): Promise<JoinRoomResult> {
     this.leaveRoom();
     const supabase = getSupabase();
 
     const roomId = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-    if (!roomId) return;
+    if (!roomId) {
+      return { participants: null, participantCount: null };
+    }
     this.roomCode = roomId;
 
     await this.getOrCreateRoomMeta(roomId);
@@ -191,7 +241,25 @@ class SyncService {
           if (ev) onEvent(ev);
         },
       )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'room_participants',
+          filter: `room_id=eq.${roomId}`,
+        },
+        async () => {
+          const claimed = await this.listClaimedParticipants();
+          this.onParticipantsChanged?.(claimed);
+        },
+      )
       .subscribe();
+
+    return {
+      participants: existing?.participants ?? null,
+      participantCount: existing?.participantCount ?? null,
+    };
   }
 
   private deriveNextStatus(current: AuctionStatus, event: SyncEvent): AuctionStatus {
@@ -267,6 +335,7 @@ class SyncService {
     }
     this.roomCode = null;
     this.isHostForRoom = false;
+    this.onParticipantsChanged = null;
   }
 }
 
