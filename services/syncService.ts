@@ -1,9 +1,19 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AuctionStatus, SyncEvent } from '../types';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string;
-const supabase = createClient(url, anon);
+const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+
+let supabaseClient: SupabaseClient | null = null;
+
+function getSupabase(): SupabaseClient {
+  if (supabaseClient) return supabaseClient;
+  if (!url || !anon) {
+    throw new Error('Supabase is not configured. Set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.');
+  }
+  supabaseClient = createClient(url, anon);
+  return supabaseClient;
+}
 
 type RoomState = {
   roomId: string;
@@ -20,12 +30,13 @@ type RoomMeta = {
 
 class SyncService {
   private roomCode: string | null = null;
-  private channel: ReturnType<typeof supabase.channel> | null = null;
+  private channel: ReturnType<SupabaseClient['channel']> | null = null;
   private currentUserId: string | null = null;
   private isHostForRoom = false;
 
   async initAuth() {
     if (this.currentUserId) return this.currentUserId;
+    const supabase = getSupabase();
 
     const existing = await supabase.auth.getUser();
     if (existing.data.user?.id) {
@@ -46,6 +57,7 @@ class SyncService {
   }
 
   private async getOrCreateRoomMeta(roomId: string): Promise<RoomMeta> {
+    const supabase = getSupabase();
     const userId = await this.initAuth();
 
     const existing = await supabase.from('rooms').select('room_id,host_user_id').eq('room_id', roomId).maybeSingle();
@@ -61,7 +73,6 @@ class SyncService {
       .single();
 
     if (created.error || !created.data) {
-      // Race-safe fallback if another user created first.
       const fallback = await supabase.from('rooms').select('room_id,host_user_id').eq('room_id', roomId).single();
       if (fallback.error || !fallback.data) {
         throw new Error(`room init failed: ${created.error?.message ?? fallback.error?.message ?? 'unknown'}`);
@@ -75,18 +86,21 @@ class SyncService {
   }
 
   private async readRoomState(roomId: string): Promise<RoomState | null> {
+    const supabase = getSupabase();
     const { data, error } = await supabase.from('auction_rooms').select('state').eq('room_id', roomId).maybeSingle();
     if (error || !data?.state) return null;
     return data.state as RoomState;
   }
 
   private async writeRoomState(roomId: string, nextState: RoomState) {
+    const supabase = getSupabase();
     const { error } = await supabase.from('auction_rooms').upsert({ room_id: roomId, state: nextState }, { onConflict: 'room_id' });
     if (error) throw new Error(error.message);
   }
 
   async claimParticipant(founderId: string): Promise<boolean> {
     if (!this.roomCode) return false;
+    const supabase = getSupabase();
     const userId = await this.initAuth();
 
     const res = await supabase.from('room_participants').insert({
@@ -109,6 +123,7 @@ class SyncService {
 
   private async canBid(founderId: string): Promise<boolean> {
     if (!this.roomCode) return false;
+    const supabase = getSupabase();
     const userId = await this.initAuth();
     const q = await supabase
       .from('room_participants')
@@ -122,6 +137,7 @@ class SyncService {
 
   async joinRoom(code: string, onEvent: (event: SyncEvent) => void) {
     this.leaveRoom();
+    const supabase = getSupabase();
 
     const roomId = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!roomId) return;
@@ -162,6 +178,7 @@ class SyncService {
 
   async sendEvent(event: SyncEvent) {
     if (!this.roomCode) return;
+    const supabase = getSupabase();
 
     const roomId = this.roomCode;
     await this.getOrCreateRoomMeta(roomId);
@@ -170,17 +187,14 @@ class SyncService {
       (await this.readRoomState(roomId)) ??
       ({ roomId, updatedAt: Date.now(), eventSeq: 0, status: AuctionStatus.IDLE } as RoomState);
 
-    // Host-only controls
     if ((event.type === 'START' || event.type === 'RESET') && !this.isHostForRoom) {
       throw new Error('Only host can start/reset.');
     }
 
-    // Prevent implicit restart after ended unless explicit RESET first.
     if (event.type === 'START' && current.status === AuctionStatus.ENDED) {
       throw new Error('Auction is ended. Host must reset before starting again.');
     }
 
-    // Bid ownership checks
     if (event.type === 'BID') {
       const ok = await this.canBid(event.winnerId);
       if (!ok) {
@@ -217,7 +231,7 @@ class SyncService {
 
   leaveRoom() {
     if (this.channel) {
-      void supabase.removeChannel(this.channel);
+      void getSupabase().removeChannel(this.channel);
       this.channel = null;
     }
     this.roomCode = null;

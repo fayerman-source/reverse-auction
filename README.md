@@ -145,7 +145,10 @@ A deployment workflow is included at:
 Setup:
 1. Go to **Settings → Pages**
 2. Set **Source** to **GitHub Actions**
-3. Push to `main`
+3. In **Settings → Secrets and variables → Actions**, add:
+   - `VITE_SUPABASE_URL`
+   - `VITE_SUPABASE_ANON_KEY`
+4. Push to `main`
 
 After a successful run, the site is available at:
 
