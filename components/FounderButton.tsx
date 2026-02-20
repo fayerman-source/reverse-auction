@@ -43,9 +43,9 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
       onClick={() => onBid(founder)}
       disabled={disabled}
       className={`
-        relative group flex flex-col items-center justify-center p-2 md:p-4 
+        relative group flex flex-col items-center justify-center p-2.5 md:p-4 
         rounded-xl md:rounded-2xl border-2 w-full transition-all duration-200
-        min-h-[80px] md:min-h-[140px]
+        min-h-[100px] md:min-h-[140px]
         ${buttonStyle}
       `}
     >
@@ -68,15 +68,15 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
           disabled && !isWinner ? 'bg-slate-800 border-slate-700 text-slate-600' :
           `${founder.color} text-white border-white/5 group-hover:border-white/20`}
       `}>
-        <span className="text-xs md:text-xl font-bold tracking-wider">{founder.name}</span>
+        <span className="text-sm md:text-xl font-bold tracking-wider">{founder.name}</span>
       </div>
       
-      <div className={`font-bold display-font uppercase tracking-tight ${isWinner ? 'text-[10px] md:text-lg' : 'text-[8px] md:text-base'}`}>
+      <div className={`font-bold display-font uppercase tracking-tight ${isWinner ? 'text-xs md:text-lg' : 'text-[11px] md:text-base'}`}>
         {isWinner ? 'ACCEPTED' : isRunning ? (disabled ? 'WAIT' : 'ACCEPT') : 'IDLE'}
       </div>
 
       {isRunning && !disabled && (
-        <div className="mt-0.5 text-[7px] md:text-[10px] font-mono opacity-40">
+        <div className="mt-1 text-[10px] md:text-[10px] font-mono opacity-60">
           ${(currentPrice / 1000).toFixed(0)}k
         </div>
       )}

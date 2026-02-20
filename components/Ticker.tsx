@@ -43,8 +43,8 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
       </div>
 
       <div className="relative z-10 text-center">
-        <h2 className="text-slate-500 text-[8px] md:text-sm uppercase tracking-[0.2em] mb-0.5 md:mb-2 font-medium">Current Price</h2>
-        <div className="text-4xl sm:text-7xl md:text-9xl font-bold text-white tracking-tighter tabular-nums display-font leading-none">
+        <h2 className="text-slate-400 text-[11px] md:text-sm uppercase tracking-[0.16em] mb-1 md:mb-2 font-semibold">Current Price</h2>
+        <div className="text-5xl sm:text-7xl md:text-9xl font-bold text-white tracking-tighter tabular-nums display-font leading-none">
           ${price.toLocaleString()}
         </div>
       </div>
@@ -59,7 +59,7 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
       </div>
 
       {status === AuctionStatus.RUNNING && (
-        <p className="mt-1.5 text-[8px] md:text-xs text-slate-500 font-mono animate-pulse">
+        <p className="mt-2 text-[11px] md:text-xs text-slate-400 font-mono animate-pulse">
           {Math.ceil((progress / 100) * (dropIntervalMs / 1000))}s
         </p>
       )}

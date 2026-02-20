@@ -296,8 +296,8 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex-none w-full md:w-72 lg:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-3 md:p-6 z-10">
-          <div className="grid gap-2 md:gap-4 h-full" style={{ gridTemplateColumns: `repeat(${Math.min(founders.length, 3)}, minmax(0, 1fr))` }}>
+        <div className="flex-none w-full md:w-72 lg:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-2.5 md:p-6 z-10 max-h-[42vh] md:max-h-none overflow-y-auto">
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2 md:gap-4 h-full">
             {founders.map((founder) => (
               <FounderButton key={founder.id} founder={founder} currentPrice={gameState.currentPrice} status={gameState.status} onBid={handleBid} disabled={(gameState.status !== AuctionStatus.RUNNING && gameState.winner?.id !== founder.id) || (isRemote && myFounderId !== null && founder.id !== myFounderId && gameState.winner?.id !== founder.id)} isWinner={gameState.winner?.id === founder.id} isMe={isRemote && founder.id === myFounderId} />
             ))}
