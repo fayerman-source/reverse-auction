@@ -103,12 +103,16 @@ If `participantCount` is greater than `participants.length`, extra participants 
 - npm
 
 ### Environment
-Create `.env.local`:
+Create `.env.local` (optional if already set in `public/setup.js`):
 
 ```bash
 VITE_SUPABASE_URL=...
 VITE_SUPABASE_ANON_KEY=...
 ```
+
+`syncService` now supports both sources:
+1. `VITE_SUPABASE_*` build env vars
+2. `window.AUCTION_SETUP.supabaseUrl` + `window.AUCTION_SETUP.supabaseAnonKey`
 
 ### Run
 

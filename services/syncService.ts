@@ -1,8 +1,14 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import { AuctionStatus, SyncEvent } from '../types';
 
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const runtimeSetup = (window as any).AUCTION_SETUP ?? {};
+
+const url =
+  (import.meta.env.VITE_SUPABASE_URL as string | undefined) ??
+  (runtimeSetup.supabaseUrl as string | undefined);
+const anon =
+  (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) ??
+  (runtimeSetup.supabaseAnonKey as string | undefined);
 
 let supabaseClient: SupabaseClient | null = null;
 

@@ -1,6 +1,10 @@
 // Auction admin setup file.
 // Edit values below, then rebuild/redeploy.
 window.AUCTION_SETUP = {
+  // Supabase public client config (safe to expose in frontend)
+  supabaseUrl: 'https://icbkcmqowouatasebisy.supabase.co',
+  supabaseAnonKey: 'sb_publishable_AzGHk6X-BKXXpcrsdcFGog_E5--VTpt',
+
   startPrice: 20000,
   floorPrice: 1000,
   decrementAmount: 1000,
