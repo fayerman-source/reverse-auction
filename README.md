@@ -1,6 +1,6 @@
 # Reverse Auction (Dutch Auction)
 
-<img src="docs/images/reverse-auction-hero-square.jpg" width="600" alt="Reverse Auction" />
+![Reverse Auction](docs/images/reverse-auction-hero-landscape.jpg)
 
 A configurable, real-time reverse auction web app built with React, TypeScript, and Vite.
 
