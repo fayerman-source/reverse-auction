@@ -279,7 +279,7 @@ const App: React.FC = () => {
     gameState.status === AuctionStatus.ENDED;
 
   return (
-    <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden select-none">
+    <div className="h-[100svh] md:h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden select-none">
       <header className="flex-none p-3 md:p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md z-50">
         <div className="w-full flex justify-between items-center px-1 md:px-4">
           <div className="flex items-center gap-2 md:gap-3">
@@ -479,7 +479,10 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex-none w-full md:w-72 lg:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-2.5 md:p-6 z-10 max-h-[42vh] md:max-h-none overflow-y-auto">
+        <div
+          className="flex-none w-full md:w-72 lg:w-80 border-t md:border-t-0 md:border-l border-slate-800 bg-slate-900/40 p-2.5 md:p-6 z-10 max-h-[42svh] md:max-h-none overflow-y-auto"
+          style={{ paddingBottom: 'max(0.75rem, env(safe-area-inset-bottom))' }}
+        >
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-1 gap-2 md:gap-4 h-full">
             {founders.map((founder) => (
               <FounderButton key={founder.id} founder={founder} currentPrice={gameState.currentPrice} status={gameState.status} onBid={handleBid} disabled={(gameState.status !== AuctionStatus.RUNNING && gameState.winner?.id !== founder.id) || (isRemote && myFounderId !== null && founder.id !== myFounderId && gameState.winner?.id !== founder.id)} isWinner={gameState.winner?.id === founder.id} isMe={isRemote && founder.id === myFounderId} />
