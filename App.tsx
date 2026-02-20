@@ -28,6 +28,7 @@ const App: React.FC = () => {
   const [isHost, setIsHost] = useState(false);
   const [claimedIds, setClaimedIds] = useState<Set<string>>(new Set());
   const [showStartConsent, setShowStartConsent] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
   const timerRef = useRef<number | null>(null);
 
@@ -41,12 +42,18 @@ const App: React.FC = () => {
     });
   };
 
+  const showError = (err: unknown) => {
+    const msg = err instanceof Error ? err.message : String(err);
+    setToast(msg.replace(/^Error:\s*/i, ''));
+    window.setTimeout(() => setToast(null), 3500);
+  };
+
   const handleReset = async (remoteInitiated = false) => {
     if (isRemote && !remoteInitiated) {
       try {
         await syncService.sendEvent({ type: 'RESET' });
       } catch (err) {
-        alert(String(err));
+        showError(err);
       }
       return;
     }
@@ -131,7 +138,7 @@ const App: React.FC = () => {
       try {
         await syncService.sendEvent({ type: 'START', startTime, startPrice: config.startPrice });
       } catch (err) {
-        alert(String(err));
+        showError(err);
       }
     } else {
       soundService.playDrop();
@@ -146,7 +153,15 @@ const App: React.FC = () => {
   };
 
   const handleStart = async () => {
-    if (isRemote && isHost) {
+    if (isRemote) {
+      if (!isHost) {
+        showError('Only host can start the auction.');
+        return;
+      }
+      if (claimedIds.size < founders.length) {
+        showError(`Waiting for participants: ${claimedIds.size}/${founders.length} joined.`);
+        return;
+      }
       setShowStartConsent(true);
       return;
     }
@@ -161,13 +176,13 @@ const App: React.FC = () => {
       try {
         await syncService.sendEvent({ type: 'BID', winnerId: founder.id, price: gameState.currentPrice, timestamp: Date.now() });
       } catch (err) {
-        alert(String(err));
+        showError(err);
       }
       return;
     }
 
+    const lockedPrice = gameState.currentPrice;
     soundService.playBid();
-    await new Promise((resolve) => setTimeout(resolve, Math.floor(Math.random() * 200) + 50));
 
     setGameState((prev) => {
       if (prev.status !== AuctionStatus.RUNNING) return prev;
@@ -175,7 +190,8 @@ const App: React.FC = () => {
         ...prev,
         status: AuctionStatus.ENDED,
         winner: founder,
-        history: [...prev.history, { price: prev.currentPrice, timestamp: new Date(), event: 'WIN', details: founder.name }],
+        currentPrice: lockedPrice,
+        history: [...prev.history, { price: lockedPrice, timestamp: new Date(), event: 'WIN', details: founder.name }],
       };
     });
   };
@@ -231,6 +247,13 @@ const App: React.FC = () => {
     setSetupOpen(false);
   };
 
+  const requiredParticipants = founders.length;
+  const allSlotsClaimed = claimedIds.size >= requiredParticipants;
+  const canStart = gameState.status === AuctionStatus.IDLE && (!isRemote || (isRemote && isHost));
+  const canReset =
+    (gameState.status === AuctionStatus.IDLE && gameState.history.length > 0) ||
+    gameState.status === AuctionStatus.ENDED;
+
   return (
     <div className="h-screen bg-slate-950 text-slate-100 flex flex-col overflow-hidden select-none">
       <header className="flex-none p-3 md:p-4 border-b border-slate-800 bg-slate-900/50 backdrop-blur-md z-50">
@@ -263,11 +286,28 @@ const App: React.FC = () => {
               </div>
             )}
 
-            {gameState.status === AuctionStatus.IDLE && <button disabled={isRemote && !isHost} onClick={handleStart} className="px-3 py-1.5 md:px-6 md:py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-lg transition-colors text-[10px] md:text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed">START</button>}
-            {gameState.status === AuctionStatus.IDLE && gameState.history.length > 0 && <button disabled={isRemote && !isHost} onClick={() => handleReset(false)} className="px-2 py-1.5 md:px-3 border border-slate-700 hover:bg-slate-800 text-slate-300 rounded-lg transition-colors text-[10px] disabled:opacity-40 disabled:cursor-not-allowed">RESET</button>}
+            {canStart && (
+              <button
+                disabled={isRemote && !allSlotsClaimed}
+                title={isRemote && !allSlotsClaimed ? `Waiting for participants: ${claimedIds.size}/${requiredParticipants}` : undefined}
+                onClick={handleStart}
+                className="px-3 py-1.5 md:px-6 md:py-2 bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold rounded-lg transition-colors text-[10px] md:text-sm shadow-lg shadow-cyan-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                START
+              </button>
+            )}
+            {canReset && (!isRemote || isHost) && (
+              <button onClick={() => handleReset(false)} className="px-2 py-1.5 md:px-3 border border-slate-700 hover:bg-slate-800 text-slate-300 rounded-lg transition-colors text-[10px] disabled:opacity-40 disabled:cursor-not-allowed">RESET</button>
+            )}
           </div>
         </div>
       </header>
+
+      {toast && (
+        <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[130] bg-rose-500/95 text-white text-sm px-4 py-2 rounded-lg shadow-xl border border-rose-300/30">
+          {toast}
+        </div>
+      )}
 
       {setupOpen && (
         <div className="absolute inset-0 bg-slate-950/90 z-[120] flex items-center justify-center p-4">
@@ -332,7 +372,7 @@ const App: React.FC = () => {
             <p className="text-slate-500 text-[10px] md:text-sm mb-6 uppercase tracking-widest font-mono">Select your identity for this room</p>
             <div className="grid grid-cols-1 gap-3">{founders.map((f) => {
               const alreadyClaimed = claimedIds.has(f.id);
-              return <button key={f.id} disabled={alreadyClaimed} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); setClaimedIds(await syncService.listClaimedParticipants()); } else { alert('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
+              return <button key={f.id} disabled={alreadyClaimed} onClick={async () => { const ok = await syncService.claimParticipant(f.id); if (ok) { setMyFounderId(f.id); setClaimedIds(await syncService.listClaimedParticipants()); } else { showError('This participant is already claimed. Choose another.'); } }} className={`p-3 md:p-4 rounded-xl border-2 border-slate-800 transition-all font-bold text-base md:text-lg ${f.color.replace('bg-', 'text-')} ${alreadyClaimed ? 'opacity-40 cursor-not-allowed' : 'hover:border-cyan-500'}`}>
                 <div>{f.name}</div>
                 <div className="text-[10px] mt-1 text-slate-400">{alreadyClaimed ? 'Already joined' : 'Available'}</div>
               </button>;
