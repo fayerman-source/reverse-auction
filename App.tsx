@@ -227,6 +227,30 @@ const App: React.FC = () => {
     };
   }, [isRemote, isConnected]);
 
+  useEffect(() => {
+    if (!isRemote || !isConnected) return;
+
+    let timer: number | null = null;
+
+    const refreshClaims = async () => {
+      try {
+        const claimed = await syncService.listClaimedParticipants();
+        setClaimedIds(claimed);
+      } catch {
+        // Realtime callback remains primary; this is just a resilience fallback.
+      }
+    };
+
+    void refreshClaims();
+    timer = window.setInterval(() => {
+      void refreshClaims();
+    }, 2000);
+
+    return () => {
+      if (timer) window.clearInterval(timer);
+    };
+  }, [isRemote, isConnected]);
+
   const applySetup = async () => {
     const nextConfig: AuctionConfig = {
       startPrice: Math.max(1, Math.floor(draftConfig.startPrice)),
