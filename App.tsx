@@ -75,13 +75,21 @@ const App: React.FC = () => {
       case 'BID': {
         const winner = founders.find((f) => f.id === event.winnerId) || null;
         soundService.playBid();
-        setGameState((prev) => ({
-          ...prev,
-          status: AuctionStatus.ENDED,
-          winner,
-          currentPrice: event.price,
-          history: [...prev.history, { price: event.price, timestamp: new Date(event.timestamp), event: 'WIN', details: winner?.name }],
-        }));
+        setGameState((prev) => {
+          const last = prev.history[prev.history.length - 1];
+          const baseHistory =
+            last && last.event === 'DROP' && last.price === event.price
+              ? prev.history.slice(0, -1)
+              : prev.history;
+
+          return {
+            ...prev,
+            status: AuctionStatus.ENDED,
+            winner,
+            currentPrice: event.price,
+            history: [...baseHistory, { price: event.price, timestamp: new Date(event.timestamp), event: 'WIN', details: winner?.name }],
+          };
+        });
         break;
       }
       case 'RESET':
@@ -186,12 +194,19 @@ const App: React.FC = () => {
 
     setGameState((prev) => {
       if (prev.status !== AuctionStatus.RUNNING) return prev;
+
+      const last = prev.history[prev.history.length - 1];
+      const baseHistory =
+        last && last.event === 'DROP' && last.price === lockedPrice
+          ? prev.history.slice(0, -1)
+          : prev.history;
+
       return {
         ...prev,
         status: AuctionStatus.ENDED,
         winner: founder,
         currentPrice: lockedPrice,
-        history: [...prev.history, { price: lockedPrice, timestamp: new Date(), event: 'WIN', details: founder.name }],
+        history: [...baseHistory, { price: lockedPrice, timestamp: new Date(), event: 'WIN', details: founder.name }],
       };
     });
   };

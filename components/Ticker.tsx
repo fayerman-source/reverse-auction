@@ -23,15 +23,23 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
       const now = Date.now();
       const timeLeft = Math.max(0, nextDropTime - now);
       const percentage = (timeLeft / dropIntervalMs) * 100;
-      setProgress(percentage);
+      setProgress(Math.max(0, Math.min(100, percentage)));
 
-      if (timeLeft > 0) {
-        animFrame = requestAnimationFrame(updateProgress);
+      animFrame = requestAnimationFrame(updateProgress);
+    };
+
+    const onVisible = () => {
+      if (!document.hidden) {
+        updateProgress();
       }
     };
 
+    document.addEventListener('visibilitychange', onVisible);
     updateProgress();
-    return () => cancelAnimationFrame(animFrame);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      cancelAnimationFrame(animFrame);
+    };
   }, [status, nextDropTime, dropIntervalMs]);
 
   return (
@@ -60,7 +68,7 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
 
       {status === AuctionStatus.RUNNING && (
         <p className="mt-2 text-[11px] md:text-xs text-slate-400 font-mono animate-pulse">
-          {Math.ceil((progress / 100) * (dropIntervalMs / 1000))}s
+          {Math.max(1, Math.ceil((progress / 100) * (dropIntervalMs / 1000)))}s
         </p>
       )}
     </div>
