@@ -22,7 +22,7 @@ export enum AuctionStatus {
 export interface BidLog {
   price: number;
   timestamp: Date;
-  event: 'DROP' | 'START' | 'PAUSE' | 'WIN';
+  event: 'DROP' | 'START' | 'NO_DEAL' | 'WIN';
   details?: string;
 }
 

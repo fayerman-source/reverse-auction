@@ -82,7 +82,7 @@ export const FounderButton: React.FC<FounderButtonProps> = ({
       </div>
       
       <div className={`font-bold display-font uppercase ${isWinner ? 'text-xs md:text-lg tracking-normal' : 'text-sm md:text-base tracking-tight'}`}>
-        {isWinner ? 'ACCEPTED' : isRunning ? (disabled ? 'WAIT' : 'ACCEPT') : (isClaimed ? 'READY' : 'OPEN')}
+        {isWinner ? 'ACCEPTED' : isEnded ? 'PASSED' : isRunning ? (disabled ? 'WAIT' : 'ACCEPT') : (isClaimed ? 'READY' : 'OPEN')}
       </div>
 
       {isRunning && !disabled && (

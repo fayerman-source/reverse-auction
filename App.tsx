@@ -140,13 +140,16 @@ const App: React.FC = () => {
           if (prev.status !== AuctionStatus.RUNNING) return prev;
           const newPrice = prev.currentPrice - config.decrementAmount;
 
-          if (newPrice < config.floorPrice) {
+          if (newPrice <= config.floorPrice) {
+            const terminalPrice = config.floorPrice;
             soundService.playEnd();
+            showInfo('Floor reached — no deal.');
             return {
               ...prev,
+              currentPrice: terminalPrice,
               status: AuctionStatus.ENDED,
               winner: null,
-              history: [...prev.history, { price: prev.currentPrice, timestamp: new Date(), event: 'PAUSE', details: 'Floor Reached' }],
+              history: [...prev.history, { price: terminalPrice, timestamp: new Date(), event: 'NO_DEAL', details: 'Floor Reached' }],
             };
           }
 
@@ -354,7 +357,11 @@ const App: React.FC = () => {
       if (!Number.isFinite(parsed)) {
         throw new Error(`${label} must be a valid number.`);
       }
-      return Math.max(min, Math.floor(parsed));
+      const normalized = Math.floor(parsed);
+      if (normalized < min) {
+        throw new Error(`${label} must be at least ${min}.`);
+      }
+      return normalized;
     };
 
     let nextConfig: AuctionConfig;
@@ -382,7 +389,12 @@ const App: React.FC = () => {
       .filter(Boolean)
       .map((name, idx) => ({ id: String(idx + 1), name, color: founders[idx]?.color ?? 'bg-cyan-500' }));
 
-    const nextFounders = buildParticipants(nextConfig.participantCount, parsedNames.length > 0 ? parsedNames : founders);
+    if (parsedNames.length !== nextConfig.participantCount) {
+      showError(`Please provide exactly ${nextConfig.participantCount} participant initials.`);
+      return;
+    }
+
+    const nextFounders = buildParticipants(nextConfig.participantCount, parsedNames);
 
     setConfig(nextConfig);
     setFounders(nextFounders);
@@ -618,13 +630,25 @@ const App: React.FC = () => {
           <div className="flex-none mb-2 border-b border-slate-800 pb-2">
             <h3 className="text-[10px] md:text-xs font-bold text-slate-500 uppercase tracking-widest mb-1 md:mb-3">History</h3>
             <div className="flex gap-1.5 md:gap-2 overflow-x-auto pb-1 mask-linear scrollbar-hide">
-              {gameState.history.slice().reverse().map((log, idx) => <div key={idx} className="flex-shrink-0 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-xs md:text-sm font-mono whitespace-nowrap"><span className={log.event === 'WIN' ? 'text-green-400' : 'text-slate-300'}>${log.price.toLocaleString()}</span><span className="mx-1 opacity-20">|</span><span className="opacity-75">{log.event === 'WIN' ? log.details : log.event}</span></div>)}
+              {gameState.history.slice().reverse().map((log, idx) => <div key={idx} className="flex-shrink-0 px-2 py-1 rounded bg-slate-900 border border-slate-800 text-xs md:text-sm font-mono whitespace-nowrap"><span className={log.event === 'WIN' ? 'text-green-400' : log.event === 'NO_DEAL' ? 'text-amber-300' : 'text-slate-300'}>${log.price.toLocaleString()}</span><span className="mx-1 opacity-20">|</span><span className="opacity-75">{log.event === 'WIN' ? log.details : log.event === 'NO_DEAL' ? 'NO DEAL' : log.event}</span></div>)}
             </div>
           </div>
 
           <div className="flex-1 flex flex-col justify-center items-center min-h-0">
             <div className="w-full max-w-4xl flex flex-col items-center">
               <Ticker price={gameState.currentPrice} status={gameState.status} nextDropTime={gameState.nextDropTime} dropIntervalMs={config.dropIntervalMs} />
+
+              {gameState.status === AuctionStatus.ENDED && gameState.winner && (
+                <div className="mt-4 px-4 py-2 rounded-xl border border-emerald-400/40 bg-emerald-500/10 text-emerald-200 text-sm md:text-base font-semibold text-center">
+                  SOLD — ${gameState.currentPrice.toLocaleString()} to {gameState.winner.name}
+                </div>
+              )}
+
+              {gameState.status === AuctionStatus.ENDED && !gameState.winner && (
+                <div className="mt-4 px-4 py-2 rounded-xl border border-amber-400/40 bg-amber-500/10 text-amber-200 text-sm md:text-base font-semibold text-center">
+                  FLOOR REACHED — NO DEAL
+                </div>
+              )}
             </div>
           </div>
         </div>
