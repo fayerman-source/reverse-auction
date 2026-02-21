@@ -8,34 +8,47 @@ interface TickerProps {
   dropIntervalMs: number;
 }
 
+const formatCountdown = (ms: number) => {
+  const totalSeconds = Math.max(0, Math.ceil(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${String(seconds).padStart(2, '0')}`;
+};
+
+const formatCadence = (ms: number) => {
+  if (ms % 60000 === 0) {
+    const minutes = ms / 60000;
+    return `${minutes} minute${minutes === 1 ? '' : 's'}`;
+  }
+  const seconds = Math.round(ms / 1000);
+  return `${seconds} second${seconds === 1 ? '' : 's'}`;
+};
+
 export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dropIntervalMs }) => {
-  const [progress, setProgress] = useState(100);
+  const [timeLeftMs, setTimeLeftMs] = useState(dropIntervalMs);
 
   useEffect(() => {
     let animFrame: number;
 
-    const updateProgress = () => {
+    const updateTimer = () => {
       if (status !== AuctionStatus.RUNNING) {
-        setProgress(100);
+        setTimeLeftMs(dropIntervalMs);
         return;
       }
 
-      const now = Date.now();
-      const timeLeft = Math.max(0, nextDropTime - now);
-      const percentage = (timeLeft / dropIntervalMs) * 100;
-      setProgress(Math.max(0, Math.min(100, percentage)));
-
-      animFrame = requestAnimationFrame(updateProgress);
+      setTimeLeftMs(Math.max(0, nextDropTime - Date.now()));
+      animFrame = requestAnimationFrame(updateTimer);
     };
 
     const onVisible = () => {
       if (!document.hidden) {
-        updateProgress();
+        updateTimer();
       }
     };
 
     document.addEventListener('visibilitychange', onVisible);
-    updateProgress();
+    updateTimer();
+
     return () => {
       document.removeEventListener('visibilitychange', onVisible);
       cancelAnimationFrame(animFrame);
@@ -57,20 +70,9 @@ export const Ticker: React.FC<TickerProps> = ({ price, status, nextDropTime, dro
         </div>
       </div>
 
-      <div className="w-full max-w-sm md:w-64 h-3 md:h-2 bg-slate-800 rounded-full mt-4 md:mt-8 overflow-hidden relative">
-        <div
-          className={`h-full absolute top-0 left-0 transition-all duration-75 ease-linear ${
-            progress < 30 ? 'bg-red-500' : 'bg-cyan-500'
-          }`}
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-
-      {status === AuctionStatus.RUNNING && (
-        <p className="mt-2 text-xs md:text-sm text-slate-300 font-mono animate-pulse">
-          {Math.max(1, Math.ceil((progress / 100) * (dropIntervalMs / 1000)))}s
-        </p>
-      )}
+      <p className="mt-4 text-xs md:text-sm text-slate-300 font-mono">
+        {status === AuctionStatus.RUNNING ? `Next drop in ${formatCountdown(timeLeftMs)}` : `Drops every ${formatCadence(dropIntervalMs)}`}
+      </p>
     </div>
   );
 };

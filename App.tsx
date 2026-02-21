@@ -34,8 +34,11 @@ const App: React.FC = () => {
     startPrice: String(INITIAL_CONFIG.startPrice),
     floorPrice: String(INITIAL_CONFIG.floorPrice),
     decrementAmount: String(INITIAL_CONFIG.decrementAmount),
-    dropIntervalMs: String(INITIAL_CONFIG.dropIntervalMs),
     participantCount: String(INITIAL_CONFIG.participantCount),
+  });
+  const [dropIntervalDraft, setDropIntervalDraft] = useState<{ amount: string; unit: 'seconds' | 'minutes' }>({
+    amount: String(Math.max(1, Math.round(INITIAL_CONFIG.dropIntervalMs / 1000))),
+    unit: 'seconds',
   });
 
   const timerRef = useRef<number | null>(null);
@@ -70,9 +73,15 @@ const App: React.FC = () => {
       startPrice: String(next.startPrice),
       floorPrice: String(next.floorPrice),
       decrementAmount: String(next.decrementAmount),
-      dropIntervalMs: String(next.dropIntervalMs),
       participantCount: String(next.participantCount),
     });
+
+    const intervalMinutes = next.dropIntervalMs / 60000;
+    if (Number.isInteger(intervalMinutes) && intervalMinutes >= 1) {
+      setDropIntervalDraft({ amount: String(intervalMinutes), unit: 'minutes' });
+    } else {
+      setDropIntervalDraft({ amount: String(Math.max(1, Math.round(next.dropIntervalMs / 1000))), unit: 'seconds' });
+    }
   };
 
   const handleReset = async (remoteInitiated = false) => {
@@ -394,11 +403,14 @@ const App: React.FC = () => {
 
     let nextConfig: AuctionConfig;
     try {
+      const dropAmount = parsePositiveInt(dropIntervalDraft.amount, 1, 'Drop interval');
+      const dropIntervalMs = dropIntervalDraft.unit === 'minutes' ? dropAmount * 60_000 : dropAmount * 1_000;
+
       nextConfig = {
         startPrice: parsePositiveInt(draftNumbers.startPrice, 1, 'Start price'),
         floorPrice: parsePositiveInt(draftNumbers.floorPrice, 1, 'Floor price'),
         decrementAmount: parsePositiveInt(draftNumbers.decrementAmount, 1, 'Decrement amount'),
-        dropIntervalMs: parsePositiveInt(draftNumbers.dropIntervalMs, 250, 'Drop interval'),
+        dropIntervalMs,
         participantCount: parsePositiveInt(draftNumbers.participantCount, 1, 'Participants'),
       };
     } catch (err) {
@@ -592,8 +604,30 @@ const App: React.FC = () => {
               <label className="block">Decrement Amount
                 <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.decrementAmount} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, decrementAmount: e.target.value }))} />
               </label>
-              <label className="block">Drop Interval (ms)
-                <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.dropIntervalMs} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, dropIntervalMs: e.target.value }))} />
+              <label className="block">Drop Every
+                <div className="mt-1 flex gap-2">
+                  <input
+                    className="flex-1 bg-slate-800 border border-slate-700 rounded px-2 py-1"
+                    type="text"
+                    inputMode="numeric"
+                    value={dropIntervalDraft.amount}
+                    onChange={(e) => setDropIntervalDraft((prev) => ({ ...prev, amount: e.target.value }))}
+                  />
+                  <select
+                    className="bg-slate-800 border border-slate-700 rounded px-2 py-1"
+                    value={dropIntervalDraft.unit}
+                    onChange={(e) => setDropIntervalDraft((prev) => ({ ...prev, unit: e.target.value as 'seconds' | 'minutes' }))}
+                  >
+                    <option value="seconds">seconds</option>
+                    <option value="minutes">minutes</option>
+                  </select>
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button type="button" onClick={() => setDropIntervalDraft({ amount: '10', unit: 'seconds' })} className="text-[10px] md:text-xs px-2 py-1 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">10s</button>
+                  <button type="button" onClick={() => setDropIntervalDraft({ amount: '30', unit: 'seconds' })} className="text-[10px] md:text-xs px-2 py-1 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">30s</button>
+                  <button type="button" onClick={() => setDropIntervalDraft({ amount: '1', unit: 'minutes' })} className="text-[10px] md:text-xs px-2 py-1 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">1m</button>
+                  <button type="button" onClick={() => setDropIntervalDraft({ amount: '5', unit: 'minutes' })} className="text-[10px] md:text-xs px-2 py-1 rounded border border-slate-700 text-slate-300 hover:bg-slate-800">5m</button>
+                </div>
               </label>
               <label className="block">Participants
                 <input className="w-full mt-1 bg-slate-800 border border-slate-700 rounded px-2 py-1" type="text" inputMode="numeric" value={draftNumbers.participantCount} onChange={(e) => setDraftNumbers((prev) => ({ ...prev, participantCount: e.target.value }))} />
