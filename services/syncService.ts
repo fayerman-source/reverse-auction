@@ -1,5 +1,5 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
-import { AuctionStatus, Founder, SyncEvent, SyncParticipant } from '../types';
+import { AuctionStatus, Founder, SyncConfig, SyncEvent, SyncHistoryEntry, SyncParticipant, SyncSnapshot } from '../types';
 
 const runtimeSetup = (window as any).AUCTION_SETUP ?? {};
 
@@ -31,11 +31,13 @@ type RoomState = {
   status: AuctionStatus;
   participants?: SyncParticipant[];
   participantCount?: number;
+  snapshot?: SyncSnapshot;
 };
 
 type JoinRoomResult = {
   participants: SyncParticipant[] | null;
   participantCount: number | null;
+  snapshot: SyncSnapshot | null;
 };
 
 type RoomMeta = {
@@ -53,6 +55,7 @@ class SyncService {
   private lastSeenEventSeq = 0;
   onParticipantsChanged: ((claimed: Set<string>) => void) | null = null;
   onConnectionStatus: ((state: ConnectionState) => void) | null = null;
+  onSnapshotChanged: ((snapshot: SyncSnapshot) => void) | null = null;
 
   async initAuth() {
     if (this.currentUserId) return this.currentUserId;
@@ -74,6 +77,10 @@ class SyncService {
 
   isHost() {
     return this.isHostForRoom;
+  }
+
+  getLastSeenEventSeq() {
+    return this.lastSeenEventSeq;
   }
 
   private async getOrCreateRoomMeta(roomId: string): Promise<RoomMeta> {
@@ -127,6 +134,40 @@ class SyncService {
     }
   }
 
+  private emitSnapshot(snapshot: SyncSnapshot | null | undefined) {
+    if (!snapshot) return;
+    this.onSnapshotChanged?.(snapshot);
+  }
+
+  private buildBaseSnapshot(current: RoomState, fallbackConfig?: SyncConfig): SyncSnapshot {
+    const config =
+      current.snapshot?.config ??
+      fallbackConfig ?? {
+        startPrice: 20000,
+        floorPrice: 1000,
+        decrementAmount: 1000,
+        dropIntervalMs: 10000,
+      };
+
+    const participants =
+      current.snapshot?.participants ??
+      current.participants ??
+      [];
+
+    const participantCount = current.snapshot?.participantCount ?? current.participantCount ?? participants.length;
+
+    return {
+      status: current.snapshot?.status ?? current.status,
+      currentPrice: current.snapshot?.currentPrice ?? config.startPrice,
+      nextDropTime: current.snapshot?.nextDropTime ?? 0,
+      winnerId: current.snapshot?.winnerId ?? null,
+      history: current.snapshot?.history ?? [],
+      config,
+      participants,
+      participantCount,
+    };
+  }
+
   private async getRoomParticipants(roomId: string): Promise<SyncParticipant[]> {
     const state = await this.readRoomState(roomId);
     if (!state?.participants || state.participants.length === 0) return [];
@@ -151,12 +192,38 @@ class SyncService {
       color: String(p.color ?? 'bg-cyan-500'),
     }));
 
+    const baseSnapshot = this.buildBaseSnapshot(current);
+
     const nextState: RoomState = {
       ...current,
       roomId: this.roomCode,
       updatedAt: Date.now(),
       participants: normalized,
       participantCount: Math.max(1, Math.floor(count)),
+      snapshot: {
+        ...baseSnapshot,
+        participants: normalized,
+        participantCount: Math.max(1, Math.floor(count)),
+      },
+    };
+
+    await this.writeRoomState(this.roomCode, nextState);
+  }
+
+  async publishSnapshot(snapshot: SyncSnapshot) {
+    if (!this.roomCode) return;
+    const current =
+      (await this.readRoomState(this.roomCode)) ??
+      ({ roomId: this.roomCode, updatedAt: Date.now(), eventSeq: 0, status: snapshot.status } as RoomState);
+
+    const nextState: RoomState = {
+      ...current,
+      roomId: this.roomCode,
+      updatedAt: Date.now(),
+      status: snapshot.status,
+      participants: snapshot.participants,
+      participantCount: snapshot.participantCount,
+      snapshot,
     };
 
     await this.writeRoomState(this.roomCode, nextState);
@@ -227,7 +294,7 @@ class SyncService {
 
     const roomId = code.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
     if (!roomId) {
-      return { participants: null, participantCount: null };
+      return { participants: null, participantCount: null, snapshot: null };
     }
     this.roomCode = roomId;
     this.lastSeenEventSeq = 0;
@@ -236,6 +303,7 @@ class SyncService {
 
     const existing = await this.readRoomState(roomId);
     this.dispatchIfNewer(existing, onEvent);
+    this.emitSnapshot(existing?.snapshot);
 
     this.channel = supabase
       .channel(`room:${roomId}`)
@@ -250,6 +318,7 @@ class SyncService {
         (payload) => {
           const row = payload.new as { state?: RoomState };
           this.dispatchIfNewer(row?.state ?? null, onEvent);
+          this.emitSnapshot(row?.state?.snapshot);
         },
       )
       .on(
@@ -270,6 +339,7 @@ class SyncService {
           this.onConnectionStatus?.('connected');
           const latest = await this.readRoomState(roomId);
           this.dispatchIfNewer(latest, onEvent);
+          this.emitSnapshot(latest?.snapshot);
           return;
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -284,6 +354,7 @@ class SyncService {
     return {
       participants: existing?.participants ?? null,
       participantCount: existing?.participantCount ?? null,
+      snapshot: existing?.snapshot ?? null,
     };
   }
 
@@ -325,17 +396,97 @@ class SyncService {
       if (current.status !== AuctionStatus.RUNNING) {
         throw new Error('Bid denied: auction is not running.');
       }
+
+      const authoritativePrice = current.snapshot?.currentPrice;
+      if (Number.isFinite(authoritativePrice) && Number.isFinite(event.clientSeenPrice)) {
+        if (Number(authoritativePrice) !== Number(event.clientSeenPrice)) {
+          throw new Error(`Price changed to $${Number(authoritativePrice).toLocaleString()}. Please tap ACCEPT again.`);
+        }
+      }
     }
 
     const nextSeq = (current.eventSeq ?? 0) + 1;
     const nextStatus = this.deriveNextStatus(current.status, event);
 
+    const baseSnapshot = this.buildBaseSnapshot(current, event.type === 'START' ? event.config : undefined);
+    let nextHistory: SyncHistoryEntry[] = [...baseSnapshot.history];
+    let nextSnapshot: SyncSnapshot = {
+      ...baseSnapshot,
+      status: nextStatus,
+    };
+
+    if (event.type === 'START') {
+      const config = event.config ?? baseSnapshot.config;
+      nextHistory = [{ price: event.startPrice, timestamp: event.startTime, event: 'START' }];
+      nextSnapshot = {
+        ...baseSnapshot,
+        status: AuctionStatus.RUNNING,
+        currentPrice: event.startPrice,
+        nextDropTime: event.startTime + config.dropIntervalMs,
+        winnerId: null,
+        history: nextHistory,
+        config,
+        participants: event.participants ?? baseSnapshot.participants,
+        participantCount: event.participantCount ?? baseSnapshot.participantCount,
+      };
+    }
+
+    if (event.type === 'BID') {
+      const last = nextHistory[nextHistory.length - 1];
+      if (last && last.event === 'DROP' && last.price === event.price) {
+        nextHistory = nextHistory.slice(0, -1);
+      }
+      nextHistory = [...nextHistory, { price: event.price, timestamp: event.timestamp, event: 'WIN', details: event.winnerId }];
+      nextSnapshot = {
+        ...baseSnapshot,
+        status: AuctionStatus.ENDED,
+        currentPrice: event.price,
+        nextDropTime: 0,
+        winnerId: event.winnerId,
+        history: nextHistory,
+      };
+    }
+
+    if (event.type === 'NO_DEAL') {
+      const last = nextHistory[nextHistory.length - 1];
+      if (last && last.event === 'DROP' && last.price === event.price) {
+        nextHistory = nextHistory.slice(0, -1);
+      }
+      if (!(last && last.event === 'NO_DEAL' && last.price === event.price)) {
+        nextHistory = [...nextHistory, { price: event.price, timestamp: event.timestamp, event: 'NO_DEAL', details: 'Floor Reached' }];
+      }
+      nextSnapshot = {
+        ...baseSnapshot,
+        status: AuctionStatus.ENDED,
+        currentPrice: event.price,
+        nextDropTime: 0,
+        winnerId: null,
+        history: nextHistory,
+      };
+    }
+
+    if (event.type === 'RESET') {
+      const config = baseSnapshot.config;
+      nextSnapshot = {
+        ...baseSnapshot,
+        status: AuctionStatus.IDLE,
+        currentPrice: config.startPrice,
+        nextDropTime: 0,
+        winnerId: null,
+        history: [],
+      };
+    }
+
     const nextState: RoomState = {
+      ...current,
       roomId,
       lastEvent: event,
       updatedAt: Date.now(),
       eventSeq: nextSeq,
       status: nextStatus,
+      participants: nextSnapshot.participants,
+      participantCount: nextSnapshot.participantCount,
+      snapshot: nextSnapshot,
     };
 
     await this.writeRoomState(roomId, nextState);
@@ -367,6 +518,7 @@ class SyncService {
     this.lastSeenEventSeq = 0;
     this.onParticipantsChanged = null;
     this.onConnectionStatus = null;
+    this.onSnapshotChanged = null;
   }
 }
 

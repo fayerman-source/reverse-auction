@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AuctionConfig, AuctionState, AuctionStatus, Founder, SyncEvent } from './types';
+import { AuctionConfig, AuctionState, AuctionStatus, Founder, SyncEvent, SyncSnapshot } from './types';
 import { INITIAL_CONFIG, INITIAL_FOUNDERS, buildParticipants } from './constants';
 import { Ticker } from './components/Ticker';
 import { FounderButton } from './components/FounderButton';
@@ -44,6 +44,7 @@ const App: React.FC = () => {
   const timerRef = useRef<number | null>(null);
   const prevClaimedRef = useRef<Set<string>>(new Set());
   const connectionWasLostRef = useRef(false);
+  const lastPublishedSnapshotRef = useRef('');
 
   const resetToIdle = () => {
     setGameState({
@@ -84,6 +85,32 @@ const App: React.FC = () => {
     }
   };
 
+  const applySnapshot = (snapshot: SyncSnapshot) => {
+    const nextFounders = buildParticipants(snapshot.participantCount, snapshot.participants);
+    const nextConfig: AuctionConfig = {
+      ...config,
+      ...snapshot.config,
+      participantCount: snapshot.participantCount,
+    };
+
+    setFounders(nextFounders);
+    setConfig(nextConfig);
+
+    const winner = snapshot.winnerId ? nextFounders.find((f) => f.id === snapshot.winnerId) ?? null : null;
+    setGameState({
+      currentPrice: snapshot.currentPrice,
+      status: snapshot.status,
+      winner,
+      history: snapshot.history.map((entry) => ({
+        price: entry.price,
+        timestamp: new Date(entry.timestamp),
+        event: entry.event,
+        details: entry.details,
+      })),
+      nextDropTime: snapshot.nextDropTime,
+    });
+  };
+
   const handleReset = async (remoteInitiated = false) => {
     if (isRemote && !remoteInitiated) {
       try {
@@ -98,9 +125,15 @@ const App: React.FC = () => {
 
   const handleRemoteEvent = (event: SyncEvent) => {
     switch (event.type) {
-      case 'START':
+      case 'START': {
         soundService.playDrop();
         setConnectionBanner(null);
+
+        const runtimeConfig = event.config ? { ...config, ...event.config } : config;
+        if (event.config) {
+          setConfig(runtimeConfig);
+        }
+
         if (event.participants && event.participants.length > 0) {
           setFounders(buildParticipants(event.participantCount ?? event.participants.length, event.participants));
         }
@@ -109,10 +142,11 @@ const App: React.FC = () => {
           currentPrice: event.startPrice,
           status: AuctionStatus.RUNNING,
           winner: null,
-          history: [{ price: event.startPrice, timestamp: new Date(), event: 'START' }],
-          nextDropTime: event.startTime + config.dropIntervalMs,
+          history: [{ price: event.startPrice, timestamp: new Date(event.startTime), event: 'START' }],
+          nextDropTime: event.startTime + runtimeConfig.dropIntervalMs,
         });
         break;
+      }
       case 'BID': {
         const winner = founders.find((f) => f.id === event.winnerId) || null;
         soundService.playBid();
@@ -210,7 +244,7 @@ const App: React.FC = () => {
         timerRef.current = null;
       }
     };
-  }, [gameState.status, gameState.nextDropTime, config]);
+  }, [gameState.status, gameState.nextDropTime, config, isRemote, isHost]);
 
   const executeStart = async () => {
     const startTime = Date.now();
@@ -229,6 +263,12 @@ const App: React.FC = () => {
           type: 'START',
           startTime,
           startPrice: config.startPrice,
+          config: {
+            startPrice: config.startPrice,
+            floorPrice: config.floorPrice,
+            decrementAmount: config.decrementAmount,
+            dropIntervalMs: config.dropIntervalMs,
+          },
           participantCount: founders.length,
           participants: founders.map((f) => ({ id: f.id, name: f.name, color: f.color })),
         });
@@ -284,7 +324,13 @@ const App: React.FC = () => {
 
     if (isRemote) {
       try {
-        await syncService.sendEvent({ type: 'BID', winnerId: founder.id, price: gameState.currentPrice, timestamp: Date.now() });
+        await syncService.sendEvent({
+          type: 'BID',
+          winnerId: founder.id,
+          price: gameState.currentPrice,
+          timestamp: Date.now(),
+          clientSeenPrice: gameState.currentPrice,
+        });
       } catch (err) {
         showError(err);
       }
@@ -317,6 +363,7 @@ const App: React.FC = () => {
     if (!(isRemote && isConnected)) {
       syncService.onParticipantsChanged = null;
       syncService.onConnectionStatus = null;
+      syncService.onSnapshotChanged = null;
       prevClaimedRef.current = new Set();
       connectionWasLostRef.current = false;
       return;
@@ -358,11 +405,18 @@ const App: React.FC = () => {
       }
     };
 
+    syncService.onSnapshotChanged = (snapshot) => {
+      if (!isHost) {
+        applySnapshot(snapshot);
+      }
+    };
+
     return () => {
       syncService.onParticipantsChanged = null;
       syncService.onConnectionStatus = null;
+      syncService.onSnapshotChanged = null;
     };
-  }, [isRemote, isConnected, founders]);
+  }, [isRemote, isConnected, founders, isHost]);
 
   useEffect(() => {
     if (!isRemote || !isConnected) return;
@@ -387,6 +441,39 @@ const App: React.FC = () => {
       if (timer) window.clearInterval(timer);
     };
   }, [isRemote, isConnected]);
+
+  useEffect(() => {
+    if (!(isRemote && isConnected && isHost)) return;
+
+    const snapshot: SyncSnapshot = {
+      status: gameState.status,
+      currentPrice: gameState.currentPrice,
+      nextDropTime: gameState.nextDropTime,
+      winnerId: gameState.winner?.id ?? null,
+      history: gameState.history.map((entry) => ({
+        price: entry.price,
+        timestamp: entry.timestamp.getTime(),
+        event: entry.event,
+        details: entry.details,
+      })),
+      config: {
+        startPrice: config.startPrice,
+        floorPrice: config.floorPrice,
+        decrementAmount: config.decrementAmount,
+        dropIntervalMs: config.dropIntervalMs,
+      },
+      participants: founders.map((f) => ({ id: f.id, name: f.name, color: f.color })),
+      participantCount: founders.length,
+    };
+
+    const encoded = JSON.stringify(snapshot);
+    if (encoded === lastPublishedSnapshotRef.current) return;
+    lastPublishedSnapshotRef.current = encoded;
+
+    void syncService.publishSnapshot(snapshot).catch((err) => {
+      showError(err);
+    });
+  }, [isRemote, isConnected, isHost, gameState, config, founders]);
 
   const applySetup = async () => {
     const parsePositiveInt = (value: string, min: number, label: string) => {
@@ -518,7 +605,10 @@ const App: React.FC = () => {
                         setIsConnected(true);
                         setIsHost(amHost);
 
-                        if (!amHost && roomInfo.participants && roomInfo.participants.length > 0) {
+                        if (roomInfo.snapshot) {
+                          applySnapshot(roomInfo.snapshot);
+                          lastPublishedSnapshotRef.current = JSON.stringify(roomInfo.snapshot);
+                        } else if (!amHost && roomInfo.participants && roomInfo.participants.length > 0) {
                           setFounders(buildParticipants(roomInfo.participantCount ?? roomInfo.participants.length, roomInfo.participants));
                         }
 

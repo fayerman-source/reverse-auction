@@ -26,6 +26,26 @@ export interface BidLog {
   details?: string;
 }
 
+export type SyncHistoryEntry = {
+  price: number;
+  timestamp: number;
+  event: BidLog['event'];
+  details?: string;
+};
+
+export type SyncConfig = Pick<AuctionConfig, 'startPrice' | 'floorPrice' | 'decrementAmount' | 'dropIntervalMs'>;
+
+export type SyncSnapshot = {
+  status: AuctionStatus;
+  currentPrice: number;
+  nextDropTime: number;
+  winnerId: string | null;
+  history: SyncHistoryEntry[];
+  config: SyncConfig;
+  participants: SyncParticipant[];
+  participantCount: number;
+};
+
 export interface AuctionState {
   currentPrice: number;
   status: AuctionStatus;
@@ -37,7 +57,7 @@ export interface AuctionState {
 export type SyncParticipant = { id: string; name: string; color: string };
 
 export type SyncEvent =
-  | { type: 'START'; startTime: number; startPrice: number; participantCount?: number; participants?: SyncParticipant[] }
-  | { type: 'BID'; winnerId: string; price: number; timestamp: number }
+  | { type: 'START'; startTime: number; startPrice: number; config?: SyncConfig; participantCount?: number; participants?: SyncParticipant[] }
+  | { type: 'BID'; winnerId: string; price: number; timestamp: number; clientSeenPrice?: number }
   | { type: 'NO_DEAL'; price: number; timestamp: number }
   | { type: 'RESET' };
