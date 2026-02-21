@@ -50,6 +50,7 @@ class SyncService {
   private channel: ReturnType<SupabaseClient['channel']> | null = null;
   private currentUserId: string | null = null;
   private isHostForRoom = false;
+  private lastSeenEventSeq = 0;
   onParticipantsChanged: ((claimed: Set<string>) => void) | null = null;
   onConnectionStatus: ((state: ConnectionState) => void) | null = null;
 
@@ -115,6 +116,15 @@ class SyncService {
     const supabase = getSupabase();
     const { error } = await supabase.from('auction_rooms').upsert({ room_id: roomId, state: nextState }, { onConflict: 'room_id' });
     if (error) throw new Error(error.message);
+  }
+
+  private dispatchIfNewer(state: RoomState | null, onEvent: (event: SyncEvent) => void) {
+    if (!state?.lastEvent) return;
+    const seq = Number(state.eventSeq ?? 0);
+    if (seq > this.lastSeenEventSeq) {
+      this.lastSeenEventSeq = seq;
+      onEvent(state.lastEvent);
+    }
   }
 
   private async getRoomParticipants(roomId: string): Promise<SyncParticipant[]> {
@@ -220,13 +230,12 @@ class SyncService {
       return { participants: null, participantCount: null };
     }
     this.roomCode = roomId;
+    this.lastSeenEventSeq = 0;
 
     await this.getOrCreateRoomMeta(roomId);
 
     const existing = await this.readRoomState(roomId);
-    if (existing?.lastEvent) {
-      onEvent(existing.lastEvent);
-    }
+    this.dispatchIfNewer(existing, onEvent);
 
     this.channel = supabase
       .channel(`room:${roomId}`)
@@ -240,8 +249,7 @@ class SyncService {
         },
         (payload) => {
           const row = payload.new as { state?: RoomState };
-          const ev = row?.state?.lastEvent;
-          if (ev) onEvent(ev);
+          this.dispatchIfNewer(row?.state ?? null, onEvent);
         },
       )
       .on(
@@ -257,9 +265,11 @@ class SyncService {
           this.onParticipantsChanged?.(claimed);
         },
       )
-      .subscribe((status) => {
+      .subscribe(async (status) => {
         if (status === 'SUBSCRIBED') {
           this.onConnectionStatus?.('connected');
+          const latest = await this.readRoomState(roomId);
+          this.dispatchIfNewer(latest, onEvent);
           return;
         }
         if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
@@ -279,7 +289,7 @@ class SyncService {
 
   private deriveNextStatus(current: AuctionStatus, event: SyncEvent): AuctionStatus {
     if (event.type === 'START') return AuctionStatus.RUNNING;
-    if (event.type === 'BID') return AuctionStatus.ENDED;
+    if (event.type === 'BID' || event.type === 'NO_DEAL') return AuctionStatus.ENDED;
     if (event.type === 'RESET') return AuctionStatus.IDLE;
     return current;
   }
@@ -295,12 +305,16 @@ class SyncService {
       (await this.readRoomState(roomId)) ??
       ({ roomId, updatedAt: Date.now(), eventSeq: 0, status: AuctionStatus.IDLE } as RoomState);
 
-    if ((event.type === 'START' || event.type === 'RESET') && !this.isHostForRoom) {
-      throw new Error('Only host can start/reset.');
+    if ((event.type === 'START' || event.type === 'RESET' || event.type === 'NO_DEAL') && !this.isHostForRoom) {
+      throw new Error('Only host can control auction state.');
     }
 
     if (event.type === 'START' && current.status === AuctionStatus.ENDED) {
       throw new Error('Auction is ended. Host must reset before starting again.');
+    }
+
+    if (event.type === 'NO_DEAL' && current.status !== AuctionStatus.RUNNING) {
+      throw new Error('No-deal update denied: auction is not running.');
     }
 
     if (event.type === 'BID') {
@@ -350,6 +364,7 @@ class SyncService {
     }
     this.roomCode = null;
     this.isHostForRoom = false;
+    this.lastSeenEventSeq = 0;
     this.onParticipantsChanged = null;
     this.onConnectionStatus = null;
   }

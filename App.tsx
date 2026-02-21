@@ -125,6 +125,29 @@ const App: React.FC = () => {
         });
         break;
       }
+      case 'NO_DEAL':
+        soundService.playEnd();
+        showInfo('Floor reached — no deal.');
+        setGameState((prev) => {
+          const last = prev.history[prev.history.length - 1];
+          if (last && last.event === 'NO_DEAL' && last.price === event.price) {
+            return prev;
+          }
+
+          const baseHistory =
+            last && last.event === 'DROP' && last.price === event.price
+              ? prev.history.slice(0, -1)
+              : prev.history;
+
+          return {
+            ...prev,
+            status: AuctionStatus.ENDED,
+            winner: null,
+            currentPrice: event.price,
+            history: [...baseHistory, { price: event.price, timestamp: new Date(event.timestamp), event: 'NO_DEAL', details: 'Floor Reached' }],
+          };
+        });
+        break;
       case 'RESET':
         handleReset(true);
         break;
@@ -142,6 +165,11 @@ const App: React.FC = () => {
 
           if (newPrice <= config.floorPrice) {
             const terminalPrice = config.floorPrice;
+            if (isRemote && isHost) {
+              void syncService.sendEvent({ type: 'NO_DEAL', price: terminalPrice, timestamp: Date.now() }).catch((err) => {
+                showError(err);
+              });
+            }
             soundService.playEnd();
             showInfo('Floor reached — no deal.');
             return {
@@ -383,6 +411,11 @@ const App: React.FC = () => {
       return;
     }
 
+    if (nextConfig.decrementAmount > nextConfig.startPrice - nextConfig.floorPrice) {
+      showError(`Decrement amount must be at most ${nextConfig.startPrice - nextConfig.floorPrice} for this range.`);
+      return;
+    }
+
     const parsedNames = draftInitials
       .split(',')
       .map((n) => n.trim().toUpperCase())
@@ -458,6 +491,16 @@ const App: React.FC = () => {
                         return;
                       }
                       try {
+                        setMyFounderId(null);
+                        setClaimedIds(new Set());
+                        setGameState({
+                          currentPrice: config.startPrice,
+                          status: AuctionStatus.IDLE,
+                          winner: null,
+                          history: [],
+                          nextDropTime: 0,
+                        });
+
                         const roomInfo = await syncService.joinRoom(roomCode, handleRemoteEvent);
                         const amHost = syncService.isHost();
                         setIsConnected(true);

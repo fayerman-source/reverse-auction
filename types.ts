@@ -39,4 +39,5 @@ export type SyncParticipant = { id: string; name: string; color: string };
 export type SyncEvent =
   | { type: 'START'; startTime: number; startPrice: number; participantCount?: number; participants?: SyncParticipant[] }
   | { type: 'BID'; winnerId: string; price: number; timestamp: number }
+  | { type: 'NO_DEAL'; price: number; timestamp: number }
   | { type: 'RESET' };
