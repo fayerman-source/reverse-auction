@@ -28,17 +28,22 @@ Remote mode is powered by **Supabase Realtime**.
 
 - Room metadata: `rooms`
 - Participant claims: `room_participants`
-- Room state: `auction_rooms`
+- Room state: `auction_rooms` (includes last event, status, and full state snapshot)
 - Event log: `auction_events`
+- Room snapshots: full state (price, history, config, participants) persisted for late-joiner sync and authoritative state recovery
 
 ## Features
 
 - Descending-price auction flow
-- Configurable start price, floor price, decrement amount, and tick interval
+- Configurable start price, floor price, decrement amount, and tick interval (seconds or minutes with quick presets: 10s, 30s, 1m, 5m)
 - Host-only remote controls (start/reset)
 - Participant claim locks (no duplicate slot claims)
 - Start gating until all required participants are claimed
-- Winner capture at click-time price
+- Winner capture at click-time price with bid price-lock protection
+- Real-time participant presence (join/leave toasts) and connection status indicators
+- Participant readiness visibility (READY/PASSED states)
+- Floor-reached / no-deal terminal state with clear UI
+- Authoritative room state snapshots (ensures late joiners sync correctly)
 - Auction history view
 - Sound cues (start, drop, bid, end)
 - Setup modal for runtime reconfiguration
@@ -52,14 +57,17 @@ You can configure auction behavior in two ways.
 ### 1) Frontend setup panel (GUI)
 Use the **Setup** button in the header to adjust:
 - start price
-- floor price
+- floor price  
 - decrement amount
-- drop interval
+- drop interval (seconds or minutes, with presets: 10s, 30s, 1m, 5m)
 - number of participants
 - participant initials (comma-separated)
 
-Validation currently enforces:
+Validation enforces:
 - floor price must be less than start price
+- decrement amount must not exceed price range (start - floor)
+- participant initials count must match participant count
+- all numeric values must be positive
 
 ### 2) `public/setup.js`
 Set startup defaults before the app loads:
