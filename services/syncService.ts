@@ -466,11 +466,11 @@ class SyncService {
     }
 
     if (event.type === 'RESET') {
-      const config = baseSnapshot.config;
+      const nextPrice = event.nextStartPrice ?? baseSnapshot.config.startPrice;
       nextSnapshot = {
         ...baseSnapshot,
         status: AuctionStatus.IDLE,
-        currentPrice: config.startPrice,
+        currentPrice: nextPrice,
         nextDropTime: 0,
         winnerId: null,
         history: [],

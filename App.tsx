@@ -111,16 +111,27 @@ const App: React.FC = () => {
     });
   };
 
-  const handleReset = async (remoteInitiated = false) => {
+  const handleReset = async (remoteInitiated = false, remoteNextPrice?: number) => {
     if (isRemote && !remoteInitiated) {
       try {
-        await syncService.sendEvent({ type: 'RESET' });
+        await syncService.sendEvent({ type: 'RESET', nextStartPrice: config.startPrice });
       } catch (err) {
         showError(err);
       }
       return;
     }
-    resetToIdle();
+    if (remoteNextPrice) {
+      setGameState((prev) => ({
+        ...prev,
+        currentPrice: remoteNextPrice,
+        status: AuctionStatus.IDLE,
+        winner: null,
+        history: [],
+        nextDropTime: 0,
+      }));
+    } else {
+      resetToIdle();
+    }
   };
 
   const handleRemoteEvent = (event: SyncEvent) => {
@@ -192,7 +203,7 @@ const App: React.FC = () => {
         });
         break;
       case 'RESET':
-        handleReset(true);
+        handleReset(true, event.nextStartPrice);
         break;
     }
   };

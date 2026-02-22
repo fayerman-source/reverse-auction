@@ -60,4 +60,4 @@ export type SyncEvent =
   | { type: 'START'; startTime: number; startPrice: number; config?: SyncConfig; participantCount?: number; participants?: SyncParticipant[] }
   | { type: 'BID'; winnerId: string; price: number; timestamp: number; clientSeenPrice?: number }
   | { type: 'NO_DEAL'; price: number; timestamp: number }
-  | { type: 'RESET' };
+  | { type: 'RESET'; nextStartPrice?: number };
