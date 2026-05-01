@@ -38,19 +38,27 @@ create policy "participants claim" on public.room_participants for insert to aut
 alter table public.auction_rooms enable row level security;
 alter table public.auction_events enable row level security;
 
-drop policy if exists "rooms read" on public.auction_rooms;
-drop policy if exists "rooms insert" on public.auction_rooms;
-drop policy if exists "rooms update" on public.auction_rooms;
+drop policy if exists "auction_rooms read" on public.auction_rooms;
+drop policy if exists "auction_rooms write" on public.auction_rooms;
+drop policy if exists "auction_rooms update" on public.auction_rooms;
 
 create policy "auction_rooms read" on public.auction_rooms for select to authenticated using (true);
-create policy "auction_rooms write" on public.auction_rooms for insert to authenticated with check (true);
-create policy "auction_rooms update" on public.auction_rooms for update to authenticated using (true) with check (true);
+create policy "auction_rooms write" on public.auction_rooms for insert to authenticated with check (
+  exists (select 1 from public.rooms r where r.room_id = public.auction_rooms.room_id and r.host_user_id = auth.uid())
+);
+create policy "auction_rooms update" on public.auction_rooms for update to authenticated 
+  using (exists (select 1 from public.rooms r where r.room_id = public.auction_rooms.room_id and r.host_user_id = auth.uid()))
+  with check (exists (select 1 from public.rooms r where r.room_id = public.auction_rooms.room_id and r.host_user_id = auth.uid()));
 
-drop policy if exists "events read" on public.auction_events;
-drop policy if exists "events insert" on public.auction_events;
+drop policy if exists "auction_events read" on public.auction_events;
+drop policy if exists "auction_events insert" on public.auction_events;
 
 create policy "auction_events read" on public.auction_events for select to authenticated using (true);
-create policy "auction_events insert" on public.auction_events for insert to authenticated with check (true);
+create policy "auction_events insert" on public.auction_events for insert to authenticated with check (
+  exists (select 1 from public.rooms r where r.room_id = public.auction_events.room_id and r.host_user_id = auth.uid())
+  or
+  exists (select 1 from public.room_participants p where p.room_id = public.auction_events.room_id and p.user_id = auth.uid())
+);
 
 -- Realtime publications
 alter publication supabase_realtime add table public.rooms;
