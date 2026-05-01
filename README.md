@@ -197,4 +197,4 @@ Pull requests and issues are welcome.
 
 ## License
 
-Add a license file (`LICENSE`) for your preferred license terms.
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
