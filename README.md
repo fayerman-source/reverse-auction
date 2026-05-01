@@ -1,26 +1,34 @@
-# Reverse Auction (Dutch Auction)
+# Reverse Auction (Dutch Auction) for Startup Equity & M&A
+
+[![React](https://img.shields.io/badge/React-19-61DAFB?logo=react)](https://react.dev/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+[![Supabase](https://img.shields.io/badge/Supabase-Realtime-3ECF8E?logo=supabase)](https://supabase.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ![Reverse Auction](docs/images/reverse-auction-hero-landscape.jpg)
 
-A configurable, real-time reverse auction web app built with React, TypeScript, and Vite.
+**A professional, real-time Dutch auction platform built for high-stakes transactions.** 
+
+Built for startup M&A, equity dispute resolution, and cap table clean-up. No spreadsheets, no back-and-forth emails — just one transparent session with a documented outcome.
+
+## 🚀 Key Use Cases
+
+- **Co-founder Buyouts:** Resolve equity disputes with a transparent price-discovery mechanism.
+- **Cap Table Clean-up:** Efficiently handle secondary share sales among investors.
+- **Startup M&A:** Streamline asset sales or pro-rata allocations in oversubscribed rounds.
+- **B2B Procurement:** Enable supplier bid-down on contracts with real-time feedback.
 
 ## Status
 
 ✅ **Go for live usage** (latest QA pass found no launch blockers).
 
 See:
-- `SECURITY_HARDENING_AUDIT.md`
-- `LAUNCH_RUNBOOK.md`
+- `SECURITY_HARDENING_AUDIT.md` (Security-first architecture)
+- `LAUNCH_RUNBOOK.md` (Operational readiness)
 
 ## Overview
 
-This app runs a descending-price (Dutch) auction where participants accept the current price to win.
-
-It supports:
-- local single-screen usage
-- remote shared rooms across locations
-- runtime configuration from the UI
-- startup defaults via `public/setup.js`
+This app runs a descending-price (Dutch) auction where participants accept the current price to win. It is designed to be "operator-friendly" with both technical and non-technical configuration paths.
 
 ## Current Remote Architecture
 

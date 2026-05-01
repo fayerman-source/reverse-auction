@@ -2,6 +2,21 @@
   "name": "reverse-auction",
   "private": true,
   "version": "0.1.0",
+  "description": "Real-time Dutch Auction for Startup Equity & M&A. A specialized tool for co-founder buyouts, cap table clean-up, and high-value procurement transactions built with React, TypeScript, and Supabase.",
+  "keywords": [
+    "reverse-auction",
+    "dutch-auction",
+    "real-time",
+    "supabase",
+    "react",
+    "startup-equity",
+    "legaltech",
+    "fintech",
+    "m-and-a",
+    "equity-buyout",
+    "procurement"
+  ],
+  "license": "MIT",
   "type": "module",
   "scripts": {
     "dev": "vite",
